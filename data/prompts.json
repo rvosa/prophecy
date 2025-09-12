@@ -1,0 +1,76 @@
+{
+  "prompts": [
+    {
+      "id": "adam_eve_garden",
+      "text": "Did Adam and Eve live in the Garden of Eden?",
+      "prompt_type": "setting",
+      "book": "Genesis",
+      "chapter": 2,
+      "verse_start": 8,
+      "verse_end": null,
+      "expected_answer": "yes",
+      "explanation": "Genesis 2:8 states that God planted a garden in Eden and put Adam there.",
+      "difficulty": "easy"
+    },
+    {
+      "id": "noah_ark_animals",
+      "text": "Did Noah take two of every animal onto the ark?",
+      "prompt_type": "plot",
+      "book": "Genesis",
+      "chapter": 7,
+      "verse_start": 9,
+      "verse_end": null,
+      "expected_answer": "yes",
+      "explanation": "Genesis 7:9 describes animals going into the ark two by two.",
+      "difficulty": "easy"
+    },
+    {
+      "id": "moses_burning_bush",
+      "text": "Did Moses encounter a burning bush that was not consumed?",
+      "prompt_type": "miracle",
+      "book": "Exodus",
+      "chapter": 3,
+      "verse_start": 2,
+      "verse_end": null,
+      "expected_answer": "yes",
+      "explanation": "Exodus 3:2 describes the angel of the Lord appearing in a burning bush that was not consumed.",
+      "difficulty": "medium"
+    },
+    {
+      "id": "david_goliath",
+      "text": "Did David defeat Goliath with a sword?",
+      "prompt_type": "plot",
+      "book": "1 Samuel",
+      "chapter": 17,
+      "verse_start": 50,
+      "verse_end": null,
+      "expected_answer": "no",
+      "explanation": "1 Samuel 17:50 states David defeated Goliath with a sling and stone, not a sword.",
+      "difficulty": "medium"
+    },
+    {
+      "id": "jonah_whale",
+      "text": "Was Jonah swallowed by a whale?",
+      "prompt_type": "miracle",
+      "book": "Jonah",
+      "chapter": 1,
+      "verse_start": 17,
+      "verse_end": null,
+      "expected_answer": "no",
+      "explanation": "Jonah 1:17 mentions a 'great fish', not specifically a whale.",
+      "difficulty": "hard"
+    },
+    {
+      "id": "jesus_birthplace",
+      "text": "Was Jesus born in Bethlehem?",
+      "prompt_type": "setting",
+      "book": "Matthew",
+      "chapter": 2,
+      "verse_start": 1,
+      "verse_end": null,
+      "expected_answer": "yes",
+      "explanation": "Matthew 2:1 states Jesus was born in Bethlehem of Judea.",
+      "difficulty": "easy"
+    }
+  ]
+}

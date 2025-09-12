@@ -1,0 +1,35 @@
+{
+  "name": "Genesis",
+  "chapters": [
+    {
+      "chapter": 1,
+      "verses": [
+        {
+          "verse": 1,
+          "text": "In the beginning God created the heaven and the earth."
+        },
+        {
+          "verse": 2,
+          "text": "And the earth was without form, and void; and darkness was upon the face of the deep. And the Spirit of God moved upon the face of the waters."
+        },
+        {
+          "verse": 3,
+          "text": "And God said, Let there be light: and there was light."
+        }
+      ]
+    },
+    {
+      "chapter": 2,
+      "verses": [
+        {
+          "verse": 7,
+          "text": "And the LORD God formed man of the dust of the ground, and breathed into his nostrils the breath of life; and man became a living soul."
+        },
+        {
+          "verse": 8,
+          "text": "And the LORD God planted a garden eastward in Eden; and there he put the man whom he had formed."
+        }
+      ]
+    }
+  ]
+}

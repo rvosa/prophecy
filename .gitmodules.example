@@ -1,0 +1,10 @@
+# Git submodule configuration for bible data
+# To add a bible data submodule, run:
+# git submodule add <repository-url> data/bible-texts
+
+# Example:
+# git submodule add https://github.com/your-org/hebrew-bible-json.git data/bible-texts
+
+# The system will automatically detect and load JSON files from:
+# - data/*.json (direct files)
+# - data/*/*.json (files in subdirectories like submodules)
