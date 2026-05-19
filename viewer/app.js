@@ -19,9 +19,12 @@ const state = {
   shardCache: new Map(), // book -> rows[]
 
   // Labels tab UI state
-  labelsBookSelected: null,   // book name currently expanded/selected
-  labelsStorySelected: null,  // story name currently selected (null = book-grid view)
-  labelsEngine: "",           // engine filter ("" = all engines)
+  labelsBookSelected: null,         // book whose view is shown in the right pane
+  labelsBookExpanded: new Set(),    // books visually expanded in the tree
+  labelsStorySelected: null,        // story currently selected (null = book-grid view)
+  labelsEngine: "",                 // engine filter ("" = all engines)
+  labelsCategoryFilter: null,       // Set of allowed categories, null = all
+  labelsTopicFilter: null,          // Set of allowed topics, null = all
 };
 
 // ---------- Bootstrap ----------
@@ -238,12 +241,24 @@ function bindEvents() {
     renderLabelsPaneBody();
   });
 
+  // Labels tab: category/topic checkbox lists rerender on change.
+  for (const id of ["labels-category", "labels-topic"]) {
+    document.getElementById(id).addEventListener("change", (e) => {
+      if (e.target.matches('input[type="checkbox"]')) {
+        renderLabelsPaneBody();
+      }
+    });
+  }
+
   // All/none buttons inside multi-select panels.
   for (const btn of document.querySelectorAll(".multi-actions button")) {
     btn.addEventListener("click", () => {
       const target = btn.dataset.target;
       const action = btn.dataset.action;
       setAllChecked(target, action === "all");
+      if (target === "labels-category" || target === "labels-topic") {
+        renderLabelsPaneBody();
+      }
     });
   }
 
@@ -299,8 +314,7 @@ function switchTab(name) {
 function renderLabelsTab() {
   // Engine dropdown reflects the set of engines actually present in labels.
   const engineSelect = document.getElementById("labels-engine");
-  // Preserve the "(all)" first option, append the rest.
-  engineSelect.length = 1;
+  engineSelect.length = 1; // preserve "(all)"
   const engines = sortedUnique(state.labels.map((l) => l.engine));
   for (const e of engines) {
     const opt = document.createElement("option");
@@ -309,14 +323,53 @@ function renderLabelsTab() {
     engineSelect.appendChild(opt);
   }
 
+  // Category/Topic multi-select checkboxes: derived from what's actually in
+  // the labels file (not from prompts.tsv, since unused categories would just
+  // be no-ops in this tab).
+  fillCheckboxList(
+    "labels-category",
+    sortedUnique(state.labels.map((l) => l.category)),
+    true,
+  );
+  fillCheckboxList(
+    "labels-topic",
+    sortedUnique(state.labels.map((l) => l.topic)),
+    true,
+  );
+
   renderLabelsTree();
   renderLabelsPaneBody();
 }
 
+function readLabelsFilters() {
+  // Mirror the runQuery treatment: empty set = match nothing; fully-checked
+  // = no filter (null).
+  const catChecked = readCheckedValues("labels-category");
+  const catTotal = readAllValues("labels-category").length;
+  const topicChecked = readCheckedValues("labels-topic");
+  const topicTotal = readAllValues("labels-topic").length;
+
+  state.labelsCategoryFilter =
+    catChecked.length === catTotal ? null : new Set(catChecked);
+  state.labelsTopicFilter =
+    topicChecked.length === topicTotal ? null : new Set(topicChecked);
+}
+
+function filteredLabels() {
+  // Apply engine + category + topic filters in one pass.
+  return state.labels.filter((l) => {
+    if (state.labelsEngine && l.engine !== state.labelsEngine) return false;
+    if (state.labelsCategoryFilter && !state.labelsCategoryFilter.has(l.category))
+      return false;
+    if (state.labelsTopicFilter && !state.labelsTopicFilter.has(l.topic)) return false;
+    return true;
+  });
+}
+
 function renderLabelsTree() {
   const root = document.getElementById("labels-book-list");
-  // Books that actually have at least one label entry. Falls back to the
-  // manifest's `books` if labels.json wasn't bundled.
+  // The tree shows books that have labels under the *unfiltered* set, so
+  // toggling filters doesn't make books disappear and reorder the tree.
   const labeledBooks = sortedUnique(state.labels.map((l) => l.book));
   const books = labeledBooks.length
     ? labeledBooks
@@ -324,9 +377,8 @@ function renderLabelsTree() {
 
   root.innerHTML = books
     .map((book) => {
-      const isExpanded = state.labelsBookSelected === book;
-      const isActive = isExpanded;
-      // Stories within this book that have labels.
+      const isExpanded = state.labelsBookExpanded.has(book);
+      const isActive = state.labelsBookSelected === book;
       const stories = sortedUnique(
         state.labels.filter((l) => l.book === book).map((l) => l.story),
       );
@@ -340,48 +392,60 @@ function renderLabelsTree() {
       return `
         <li class="tree-book ${isExpanded ? "expanded" : ""} ${isActive ? "active" : ""}" data-book="${escapeHtml(book)}">
           <div class="tree-book-title">
-            <span class="tree-book-chevron">▶</span>
-            <span>${escapeHtml(book)}</span>
+            <span class="tree-book-chevron" data-role="chevron" role="button" aria-label="Toggle ${escapeHtml(book)}">▶</span>
+            <span data-role="book-name">${escapeHtml(book)}</span>
           </div>
           <ul class="tree-story-list">${storyItems}</ul>
         </li>`;
     })
     .join("");
 
-  // Wire up clicks.
-  for (const node of root.querySelectorAll(".tree-book-title")) {
-    node.addEventListener("click", () => {
-      const book = node.parentElement.dataset.book;
-      if (state.labelsBookSelected === book) {
-        // Clicking the same book collapses it and clears the story selection.
-        state.labelsBookSelected = null;
-        state.labelsStorySelected = null;
+  // Chevron click: toggle expand/collapse only. Doesn't change which book is
+  // selected, so the right pane keeps showing whatever it was showing.
+  for (const node of root.querySelectorAll(".tree-book-chevron")) {
+    node.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const book = node.closest(".tree-book").dataset.book;
+      if (state.labelsBookExpanded.has(book)) {
+        state.labelsBookExpanded.delete(book);
       } else {
-        state.labelsBookSelected = book;
-        state.labelsStorySelected = null;
+        state.labelsBookExpanded.add(book);
       }
+      renderLabelsTree();
+    });
+  }
+
+  // Book name click: select the book, ensure expanded, show book grid. Never
+  // collapses — that's what the chevron is for.
+  for (const node of root.querySelectorAll('[data-role="book-name"]')) {
+    node.addEventListener("click", () => {
+      const book = node.closest(".tree-book").dataset.book;
+      state.labelsBookSelected = book;
+      state.labelsStorySelected = null;
+      state.labelsBookExpanded.add(book);
       renderLabelsTree();
       renderLabelsPaneBody();
     });
   }
+
+  // Story click: drill into the per-story detail.
   for (const node of root.querySelectorAll(".tree-story")) {
     node.addEventListener("click", (e) => {
       e.stopPropagation();
       state.labelsBookSelected = node.dataset.book;
       state.labelsStorySelected = node.dataset.story;
+      state.labelsBookExpanded.add(node.dataset.book);
       renderLabelsTree();
       renderLabelsPaneBody();
     });
   }
 }
 
-function labelsForCurrentEngine() {
-  // Filter the label list by the engine dropdown. Empty value = all engines.
-  if (!state.labelsEngine) return state.labels;
-  return state.labels.filter((l) => l.engine === state.labelsEngine);
-}
-
 function renderLabelsPaneBody() {
+  // Always re-read the filter checkboxes before rendering so the right pane
+  // is consistent with the toolbar.
+  readLabelsFilters();
+
   const title = document.getElementById("labels-pane-title");
   const body = document.getElementById("labels-pane-body");
 
@@ -399,12 +463,12 @@ function renderLabelsPaneBody() {
     return;
   }
 
-  const filtered = labelsForCurrentEngine();
+  const filtered = filteredLabels();
   const bookLabels = filtered.filter((l) => l.book === state.labelsBookSelected);
 
   if (!bookLabels.length) {
     title.textContent = state.labelsBookSelected;
-    body.innerHTML = `<div class="labels-empty">No labels for this book with the current engine filter.</div>`;
+    body.innerHTML = `<div class="labels-empty">No labels for this book with the current filters.</div>`;
     return;
   }
 
@@ -412,7 +476,18 @@ function renderLabelsPaneBody() {
     renderBookGrid(bookLabels, title, body);
   } else {
     const storyLabels = bookLabels.filter((l) => l.story === state.labelsStorySelected);
-    renderStoryDetail(state.labelsStorySelected, state.labelsBookSelected, storyLabels, title, body);
+    if (!storyLabels.length) {
+      title.innerHTML = `${escapeHtml(state.labelsStorySelected)} <span class="muted">(${escapeHtml(state.labelsBookSelected)})</span>`;
+      body.innerHTML = `<div class="labels-empty">No labels for this story with the current filters.</div>`;
+      return;
+    }
+    renderStoryDetail(
+      state.labelsStorySelected,
+      state.labelsBookSelected,
+      storyLabels,
+      title,
+      body,
+    );
   }
 }
 

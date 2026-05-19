@@ -388,10 +388,18 @@ footer {
 
 .labels-toolbar {
   display: flex;
-  align-items: baseline;
+  align-items: flex-end;
   justify-content: space-between;
   margin-bottom: 14px;
   gap: 16px;
+  flex-wrap: wrap;
+}
+
+.labels-toolbar-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 #labels-pane-title {

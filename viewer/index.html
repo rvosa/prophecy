@@ -27,9 +27,39 @@
         <div class="labels-pane">
           <div class="labels-toolbar">
             <h2 id="labels-pane-title" class="muted">Select a book</h2>
-            <label class="labels-engine-pick">Engine
-              <select id="labels-engine"><option value="">(all)</option></select>
-            </label>
+            <div class="labels-toolbar-filters">
+              <div class="multi-dropdown" data-target="labels-category">
+                <span class="multi-label">Category</span>
+                <button type="button" class="multi-toggle" aria-expanded="false" aria-haspopup="listbox">
+                  <span class="multi-summary">All</span>
+                  <span class="multi-chevron" aria-hidden="true">&#9662;</span>
+                </button>
+                <div class="multi-panel" hidden>
+                  <div class="multi-actions">
+                    <button type="button" data-target="labels-category" data-action="all">all</button>
+                    <button type="button" data-target="labels-category" data-action="none">none</button>
+                  </div>
+                  <div id="labels-category" class="checkbox-list"></div>
+                </div>
+              </div>
+              <div class="multi-dropdown" data-target="labels-topic">
+                <span class="multi-label">Topic</span>
+                <button type="button" class="multi-toggle" aria-expanded="false" aria-haspopup="listbox">
+                  <span class="multi-summary">All</span>
+                  <span class="multi-chevron" aria-hidden="true">&#9662;</span>
+                </button>
+                <div class="multi-panel" hidden>
+                  <div class="multi-actions">
+                    <button type="button" data-target="labels-topic" data-action="all">all</button>
+                    <button type="button" data-target="labels-topic" data-action="none">none</button>
+                  </div>
+                  <div id="labels-topic" class="checkbox-list"></div>
+                </div>
+              </div>
+              <label class="labels-engine-pick">Engine
+                <select id="labels-engine"><option value="">(all)</option></select>
+              </label>
+            </div>
           </div>
           <div id="labels-pane-body"></div>
         </div>
