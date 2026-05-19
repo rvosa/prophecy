@@ -249,13 +249,16 @@ def create_argument_parser() -> argparse.ArgumentParser:
             "  label    Derive per-story labels from cached results "
             "(see 'python -m prophecy label --help')\n"
             "  export   Assemble a static bundle of cached results for the viewer "
-            "(see 'python -m prophecy export --help')\n\n"
+            "(see 'python -m prophecy export --help')\n"
+            "  prune    Delete cached result files by engine filter "
+            "(see 'python -m prophecy prune --help')\n\n"
             "Examples:\n"
             "  python -m prophecy --category Politics --topic Populism --book Exodus\n"
             "  python -m prophecy --book Exodus,Genesis --prompt 152\n"
             "  python -m prophecy --topic Populism,Elitism --concatenate\n"
             "  python -m prophecy query --category Politics --book Exodus\n"
-            "  python -m prophecy label --out data/labels.json\n"
+            "  python -m prophecy label --exclude-category Test\n"
+            "  python -m prophecy prune --engine unknown --dry-run\n"
             "  python -m prophecy export --out dist/data"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1189,6 +1192,15 @@ def _create_label_parser() -> argparse.ArgumentParser:
         help="Restrict to these engines. Repeatable or comma-separated.",
     )
     parser.add_argument(
+        "--exclude-category",
+        action="append",
+        default=None,
+        help=(
+            "Skip these categories at generation time (e.g. 'Test' for the "
+            "placeholder category). Repeatable or comma-separated, case-insensitive."
+        ),
+    )
+    parser.add_argument(
         "--verbosity",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
@@ -1230,9 +1242,15 @@ def label_command(argv: list[str]) -> int:
 
     book_filter = parse_multi_value(args.book)
     engine_filter = parse_multi_value(args.engine)
+    exclude_categories_raw = parse_multi_value(args.exclude_category)
     try:
         if book_filter:
             book_filter = [normalize_known(b, available_books, "Book") for b in book_filter]
+        # Case-insensitive normalisation against the prompts.tsv vocabulary.
+        exclude_categories: set[str] = set()
+        if exclude_categories_raw:
+            for cat in exclude_categories_raw:
+                exclude_categories.add(normalize_known(cat, prompts.get_categories(), "Category"))
     except ValueError as e:
         logger.error(f"{e}")
         return 1
@@ -1255,6 +1273,8 @@ def label_command(argv: list[str]) -> int:
         if meta is None:
             # Orphan result (prompt id no longer in prompts.tsv). Skip rather
             # than fabricate a label.
+            continue
+        if meta["category"] in exclude_categories:
             continue
 
         story_title = str(r.get("story", ""))
@@ -1346,6 +1366,99 @@ def label_command(argv: list[str]) -> int:
     return 0
 
 
+def _create_prune_parser() -> argparse.ArgumentParser:
+    """Argparse parser for the 'prune' subcommand."""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Delete cached result JSON files that match an engine filter. "
+            "Useful for clearing legacy 'unknown'-engine entries left over "
+            "before engine-namespaced cache keys landed. Requires at least "
+            "one --engine value so 'delete everything' isn't a default."
+        ),
+        prog="python -m prophecy prune",
+    )
+    parser.add_argument("--data", help="Path to data folder (overrides PROPHECY_DATA_FOLDER)")
+    parser.add_argument("--cache-folder", help="Path to cache folder (defaults to data/results)")
+    parser.add_argument(
+        "--engine",
+        action="append",
+        default=None,
+        required=True,
+        help=(
+            "Delete cache files whose engine field matches one of these "
+            "values. Repeatable or comma-separated. Use 'unknown' to catch "
+            "files that have engine='unknown' OR no engine field at all."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List which files would be deleted, but don't actually delete them.",
+    )
+    parser.add_argument(
+        "--verbosity",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Set logging verbosity (default: INFO)",
+    )
+    return parser
+
+
+def prune_command(argv: list[str]) -> int:
+    """Entry point for `python -m prophecy prune [...]`."""
+    parser = _create_prune_parser()
+    args = parser.parse_args(argv)
+    logger = setup_logging(args.verbosity)
+
+    settings = Settings.load(data_folder=args.data, cache_folder=args.cache_folder)
+    cache_folder = settings.resolve_cache_folder()
+    if not cache_folder.exists():
+        logger.error(f"Cache folder does not exist: {cache_folder}")
+        return 1
+
+    engine_filter = set(parse_multi_value(args.engine) or [])
+    catch_unknown = "unknown" in engine_filter
+
+    deleted = 0
+    skipped = 0
+    inspected = 0
+    for path in sorted(cache_folder.glob("*.json")):
+        inspected += 1
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            logger.debug(f"Skipping unreadable cache file {path}: {e}")
+            skipped += 1
+            continue
+        if not isinstance(data, dict):
+            skipped += 1
+            continue
+
+        engine = data.get("engine")
+        engine_str = str(engine) if engine is not None else None
+        is_unknown = engine_str is None or engine_str == "unknown"
+
+        matches = (catch_unknown and is_unknown) or (
+            engine_str is not None and engine_str in engine_filter
+        )
+        if not matches:
+            continue
+
+        if args.dry_run:
+            logger.info(f"Would delete: {path.name} (engine={engine_str!r})")
+        else:
+            path.unlink()
+            logger.debug(f"Deleted: {path.name}")
+        deleted += 1
+
+    verb = "Would delete" if args.dry_run else "Deleted"
+    logger.info(
+        f"{verb} {deleted} of {inspected} files in {cache_folder} (skipped {skipped} unreadable)"
+    )
+    return 0
+
+
 def main():
     """Main CLI entry point."""
     # Dispatch subcommands without touching the run pipeline.
@@ -1356,6 +1469,8 @@ def main():
         sys.exit(export_command(argv[1:]))
     if argv and argv[0] == "label":
         sys.exit(label_command(argv[1:]))
+    if argv and argv[0] == "prune":
+        sys.exit(prune_command(argv[1:]))
 
     parser = create_argument_parser()
     args = parser.parse_args()

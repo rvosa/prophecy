@@ -212,6 +212,63 @@ def test_label_book_filter_case_insensitive(data_folder):
     assert all(e["book"] == "Genesis" for e in labels)
 
 
+def test_label_exclude_category(data_folder):
+    """--exclude-category Politics should drop both Populism and Elitism entries."""
+    out = data_folder / "labels.json"
+    with patch.dict(os.environ, {"PROPHECY_DATA_FOLDER": str(data_folder)}, clear=False):
+        rc = label_command(
+            [
+                "--out",
+                str(out),
+                "--exclude-category",
+                "Politics",
+                "--verbosity",
+                "WARNING",
+            ]
+        )
+    assert rc == 0
+
+    labels = _read_labels(out)
+    categories = {e["category"] for e in labels}
+    assert "Politics" not in categories
+    # Babylonian/Geo should still appear
+    assert any(e["category"] == "Babylonian" for e in labels)
+
+
+def test_label_exclude_category_case_insensitive(data_folder):
+    out = data_folder / "labels.json"
+    with patch.dict(os.environ, {"PROPHECY_DATA_FOLDER": str(data_folder)}, clear=False):
+        rc = label_command(
+            [
+                "--out",
+                str(out),
+                "--exclude-category",
+                "politics",
+                "--verbosity",
+                "WARNING",
+            ]
+        )
+    assert rc == 0
+    categories = {e["category"] for e in _read_labels(out)}
+    assert "Politics" not in categories
+
+
+def test_label_exclude_category_unknown_errors(data_folder):
+    out = data_folder / "labels.json"
+    with patch.dict(os.environ, {"PROPHECY_DATA_FOLDER": str(data_folder)}, clear=False):
+        rc = label_command(
+            [
+                "--out",
+                str(out),
+                "--exclude-category",
+                "Imaginary",
+                "--verbosity",
+                "WARNING",
+            ]
+        )
+    assert rc == 1
+
+
 def test_label_engine_filter(data_folder):
     out = data_folder / "labels.json"
     with patch.dict(os.environ, {"PROPHECY_DATA_FOLDER": str(data_folder)}, clear=False):
