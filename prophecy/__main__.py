@@ -238,13 +238,16 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Extract biblical stories, populate prompts, and get AI responses. "
-            "See 'query' to aggregate cached results, and 'export' to assemble "
-            "a static bundle for the web viewer."
+            "See 'query' to aggregate cached results, 'label' to derive "
+            "per-story labels, and 'export' to assemble a static bundle for "
+            "the web viewer."
         ),
         epilog=(
             "Subcommands:\n"
             "  query    Aggregate cached prompt results "
             "(see 'python -m prophecy query --help')\n"
+            "  label    Derive per-story labels from cached results "
+            "(see 'python -m prophecy label --help')\n"
             "  export   Assemble a static bundle of cached results for the viewer "
             "(see 'python -m prophecy export --help')\n\n"
             "Examples:\n"
@@ -252,6 +255,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
             "  python -m prophecy --book Exodus,Genesis --prompt 152\n"
             "  python -m prophecy --topic Populism,Elitism --concatenate\n"
             "  python -m prophecy query --category Politics --book Exodus\n"
+            "  python -m prophecy label --out data/labels.json\n"
             "  python -m prophecy export --out dist/data"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1135,14 +1139,204 @@ def export_command(argv: list[str]) -> int:
     return 0
 
 
+def _create_label_parser() -> argparse.ArgumentParser:
+    """Argparse parser for the 'label' subcommand."""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Compute per-story labels from cached results. A label is a "
+            "(category, topic) pair from prompts.tsv; a story carries a label "
+            "if at least one prompt in that group came back true. Writes a "
+            "single JSON file the viewer (or any other tool) can read."
+        ),
+        prog="python -m prophecy label",
+    )
+    parser.add_argument("--data", help="Path to data folder (overrides PROPHECY_DATA_FOLDER)")
+    parser.add_argument("--cache-folder", help="Path to cache folder (defaults to data/results)")
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="Output JSON path (default: <data>/labels.json)",
+    )
+    parser.add_argument(
+        "--book",
+        action="append",
+        default=None,
+        help="Restrict to stories in these books. Repeatable or comma-separated.",
+    )
+    parser.add_argument(
+        "--engine",
+        action="append",
+        default=None,
+        help="Restrict to these engines. Repeatable or comma-separated.",
+    )
+    parser.add_argument(
+        "--verbosity",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Set logging verbosity (default: INFO)",
+    )
+    return parser
+
+
+def label_command(argv: list[str]) -> int:
+    """
+    Entry point for `python -m prophecy label [...]`.
+
+    Walks the result cache, joins with prompts.tsv for category/topic/text,
+    and writes a flat JSON list of label entries — one per (story, engine,
+    category, topic) group that has at least one hit.
+    """
+    import datetime
+
+    parser = _create_label_parser()
+    args = parser.parse_args(argv)
+    logger = setup_logging(args.verbosity)
+
+    try:
+        settings = Settings.load(data_folder=args.data, cache_folder=args.cache_folder)
+        prompts = Prompts(data_folder=settings.data_folder)
+        stories = Stories(data_folder=settings.data_folder)
+    except FileNotFoundError as e:
+        logger.error(f"{e}")
+        return 1
+
+    # category/topic AND the prompt text — viewer wants to render the
+    # statement inline so it doesn't have to join against prompts.json.
+    prompt_meta = {
+        p["id"]: {"category": p["category"], "topic": p["topic"], "prompt": p["prompt"]}
+        for p in prompts.get_prompts()
+    }
+    story_book = {title: stories.get_story(title).book for title in stories.titles}
+    available_books = sorted(set(story_book.values()))
+
+    book_filter = parse_multi_value(args.book)
+    engine_filter = parse_multi_value(args.engine)
+    try:
+        if book_filter:
+            book_filter = [normalize_known(b, available_books, "Book") for b in book_filter]
+    except ValueError as e:
+        logger.error(f"{e}")
+        return 1
+
+    cache_folder = settings.resolve_cache_folder()
+    raw_results = _load_cached_results(cache_folder, logger)
+    logger.info(f"Loaded {len(raw_results)} cached results from {cache_folder}")
+
+    # group key -> aggregated bucket
+    groups: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
+
+    for r in raw_results:
+        prompt_id = str(r.get("prompt", ""))
+        # Concat:* synthetic ids represent a single combined LLM call, not
+        # individual statements; they don't fit the per-prompt scoring model.
+        if prompt_id.startswith("concat:"):
+            continue
+
+        meta = prompt_meta.get(prompt_id)
+        if meta is None:
+            # Orphan result (prompt id no longer in prompts.tsv). Skip rather
+            # than fabricate a label.
+            continue
+
+        story_title = str(r.get("story", ""))
+        if not story_title:
+            continue
+        book = story_book.get(story_title, "unknown")
+        engine = str(r.get("engine") or "unknown")
+
+        if book_filter and book not in book_filter:
+            continue
+        if engine_filter and engine not in engine_filter:
+            continue
+
+        key = (story_title, book, engine, meta["category"], meta["topic"])
+        bucket = groups.setdefault(
+            key,
+            {
+                "story": story_title,
+                "book": book,
+                "engine": engine,
+                "category": meta["category"],
+                "topic": meta["topic"],
+                "hits": 0,
+                "total": 0,
+                "cert_sum": 0,
+                "prompts": [],
+            },
+        )
+        answer = bool(r.get("answer", False))
+        certainty = int(r.get("certainty", 0) or 0)
+        bucket["total"] += 1
+        if answer:
+            bucket["hits"] += 1
+        bucket["cert_sum"] += certainty
+        bucket["prompts"].append(
+            {
+                "id": prompt_id,
+                "answer": answer,
+                "certainty": certainty,
+                "prompt": meta["prompt"],
+            }
+        )
+
+    # Emit only groups with at least one hit (user's "any signal" rule).
+    label_entries = []
+    for bucket in groups.values():
+        if bucket["hits"] == 0:
+            continue
+        total = bucket["total"]
+        # Sort prompts inside the group: true answers first, then by certainty desc.
+        bucket["prompts"].sort(key=lambda p: (not p["answer"], -p["certainty"]))
+        label_entries.append(
+            {
+                "story": bucket["story"],
+                "book": bucket["book"],
+                "engine": bucket["engine"],
+                "category": bucket["category"],
+                "topic": bucket["topic"],
+                "hits": bucket["hits"],
+                "total": total,
+                "avg_certainty": round(bucket["cert_sum"] / total, 1) if total else 0.0,
+                "prompts": bucket["prompts"],
+            }
+        )
+
+    # Deterministic order so the file diffs cleanly across runs.
+    label_entries.sort(
+        key=lambda r: (r["book"], r["story"], r["category"], r["topic"], r["engine"])
+    )
+
+    out_path = Path(args.out) if args.out else Path(settings.data_folder) / "labels.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = {
+        "generated_at": datetime.datetime.now(datetime.UTC)
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z"),
+        "label_count": len(label_entries),
+        "labels": label_entries,
+    }
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, separators=(",", ":"))
+
+    distinct_stories = len({(e["story"], e["engine"]) for e in label_entries})
+    logger.info(
+        f"Wrote {len(label_entries)} label entries across {distinct_stories} "
+        f"(story, engine) pairs to {out_path}"
+    )
+    return 0
+
+
 def main():
     """Main CLI entry point."""
-    # Dispatch the 'query' or 'export' subcommands without touching the run pipeline.
+    # Dispatch subcommands without touching the run pipeline.
     argv = sys.argv[1:]
     if argv and argv[0] == "query":
         sys.exit(query_command(argv[1:]))
     if argv and argv[0] == "export":
         sys.exit(export_command(argv[1:]))
+    if argv and argv[0] == "label":
+        sys.exit(label_command(argv[1:]))
 
     parser = create_argument_parser()
     args = parser.parse_args()
