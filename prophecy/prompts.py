@@ -72,7 +72,7 @@ class Prompts:
         Get all prompts data.
 
         Returns:
-            List of dictionaries, each containing 'id', 'period', 'topic', 'prompt' keys
+            List of dictionaries, each containing 'id', 'category', 'topic', 'prompt' keys
         """
         return [prompt.copy() for prompt in self._prompts_data]
 
@@ -85,7 +85,7 @@ class Prompts:
                 ``int`` — int values are stringified before lookup.
 
         Returns:
-            Dictionary containing 'id', 'period', 'topic', 'prompt' keys
+            Dictionary containing 'id', 'category', 'topic', 'prompt' keys
 
         Raises:
             ValueError: If the prompt ID is not found
@@ -99,17 +99,17 @@ class Prompts:
             f"Prompt ID '{prompt_id}' not found. Available IDs: {', '.join(available_ids[:10])}..."
         )
 
-    def get_prompts_by_period(self, period: str) -> list[dict[str, str]]:
+    def get_prompts_by_category(self, category: str) -> list[dict[str, str]]:
         """
-        Get all prompts for a specific period.
+        Get all prompts for a specific category.
 
         Args:
-            period: The period to filter by (e.g., 'Babylonian', 'Persian', 'Hellenistic')
+            category: The category to filter by (e.g., 'Babylonian', 'Persian', 'Hellenistic')
 
         Returns:
-            List of prompt dictionaries matching the period
+            List of prompt dictionaries matching the category
         """
-        return [prompt.copy() for prompt in self._prompts_data if prompt["period"] == period]
+        return [prompt.copy() for prompt in self._prompts_data if prompt["category"] == category]
 
     def get_prompts_by_topic(self, topic: str) -> list[dict[str, str]]:
         """
@@ -125,41 +125,41 @@ class Prompts:
 
     def filter(
         self,
-        period: str | list[str] | None = None,
+        category: str | list[str] | None = None,
         topic: str | list[str] | None = None,
     ) -> list[dict[str, str]]:
         """
-        Get prompts narrowed by period and/or topic.
+        Get prompts narrowed by category and/or topic.
 
         Args:
-            period: If set, keep only prompts whose period matches. May be a
+            category: If set, keep only prompts whose category matches. May be a
                 single string or a list of strings (any-of match).
             topic: If set, keep only prompts whose topic matches. Same shape
-                rules as ``period``.
+                rules as ``category``.
 
         Returns:
             List of prompt dictionaries matching the filters (intersection
-            across period and topic, any-of within each filter).
+            across category and topic, any-of within each filter).
             With no filters set, returns all prompts.
         """
         results = [prompt.copy() for prompt in self._prompts_data]
-        if period is not None:
-            period_set = {period} if isinstance(period, str) else set(period)
-            results = [p for p in results if p["period"] in period_set]
+        if category is not None:
+            category_set = {category} if isinstance(category, str) else set(category)
+            results = [p for p in results if p["category"] in category_set]
         if topic is not None:
             topic_set = {topic} if isinstance(topic, str) else set(topic)
             results = [p for p in results if p["topic"] in topic_set]
         return results
 
-    def get_periods(self) -> list[str]:
+    def get_categories(self) -> list[str]:
         """
-        Get all unique periods in the prompts data.
+        Get all unique categories in the prompts data.
 
         Returns:
-            Sorted list of unique periods
+            Sorted list of unique categories
         """
-        periods = set(prompt["period"] for prompt in self._prompts_data)
-        return sorted(periods)
+        categories = set(prompt["category"] for prompt in self._prompts_data)
+        return sorted(categories)
 
     def get_topics(self) -> list[str]:
         """
@@ -202,7 +202,7 @@ class Prompts:
         Populate the template with a prompt record, story object, and text.
 
         Args:
-            prompt_record: Dictionary containing prompt data with 'id', 'period', 'topic', 'prompt' keys
+            prompt_record: Dictionary containing prompt data with 'id', 'category', 'topic', 'prompt' keys
             story_object: Story object with title, book, and verses properties
             text: The biblical text content
 
@@ -214,7 +214,7 @@ class Prompts:
             AttributeError: If story_object is missing required attributes
         """
         # Validate prompt_record
-        required_keys = {"id", "period", "topic", "prompt"}
+        required_keys = {"id", "category", "topic", "prompt"}
         missing_keys = required_keys - set(prompt_record.keys())
         if missing_keys:
             raise ValueError(f"Prompt record missing required keys: {missing_keys}")
@@ -232,7 +232,7 @@ class Prompts:
 
         # Prepare template variables
         template_vars = {
-            "period": prompt_record["period"],
+            "category": prompt_record["category"],
             "topic": prompt_record["topic"],
             "prompt": prompt_record["prompt"],
             "text": text,

@@ -20,8 +20,8 @@
   <main>
     <section id="tab-prompts" class="tab-panel active">
       <div class="filters">
-        <label>Period
-          <select id="prompts-period"><option value="">(all)</option></select>
+        <label>Category
+          <select id="prompts-category"><option value="">(all)</option></select>
         </label>
         <label>Topic
           <select id="prompts-topic"><option value="">(all)</option></select>
@@ -33,7 +33,7 @@
       </div>
       <table id="prompts-table">
         <thead>
-          <tr><th>ID</th><th>Period</th><th>Topic</th><th>Prompt</th><th>Results</th></tr>
+          <tr><th>ID</th><th>Category</th><th>Topic</th><th>Prompt</th><th>Results</th></tr>
         </thead>
         <tbody></tbody>
       </table>
@@ -47,8 +47,8 @@
         <label>Story
           <select id="responses-story"><option value="">(all)</option></select>
         </label>
-        <label>Period
-          <select id="responses-period"><option value="">(all)</option></select>
+        <label>Category
+          <select id="responses-category"><option value="">(all)</option></select>
         </label>
         <label>Topic
           <select id="responses-topic"><option value="">(all)</option></select>
@@ -74,7 +74,7 @@
             <th>Story</th>
             <th>Book</th>
             <th>Prompt</th>
-            <th>Period</th>
+            <th>Category</th>
             <th>Topic</th>
             <th>Engine</th>
             <th>Answer</th>
@@ -88,18 +88,18 @@
 
     <section id="tab-query" class="tab-panel">
       <div class="filters">
-        <div class="multi-dropdown" data-target="query-period">
-          <span class="multi-label">Period</span>
+        <div class="multi-dropdown" data-target="query-category">
+          <span class="multi-label">Category</span>
           <button type="button" class="multi-toggle" aria-expanded="false" aria-haspopup="listbox">
             <span class="multi-summary">All</span>
             <span class="multi-chevron" aria-hidden="true">&#9662;</span>
           </button>
           <div class="multi-panel" hidden>
             <div class="multi-actions">
-              <button type="button" data-target="query-period" data-action="all">all</button>
-              <button type="button" data-target="query-period" data-action="none">none</button>
+              <button type="button" data-target="query-category" data-action="all">all</button>
+              <button type="button" data-target="query-category" data-action="none">none</button>
             </div>
-            <div id="query-period" class="checkbox-list"></div>
+            <div id="query-category" class="checkbox-list"></div>
           </div>
         </div>
 
@@ -149,7 +149,7 @@
           <tr>
             <th>Story</th>
             <th>Book</th>
-            <th>Period</th>
+            <th>Category</th>
             <th>Topic</th>
             <th>Engine</th>
             <th>Hits</th>

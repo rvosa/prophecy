@@ -4,7 +4,7 @@ Test module to verify the structure and content of data/prompts.tsv.
 
 Requirements being tested:
 1. File must be tab-separated data with exactly four columns
-2. Headers should be 'id', 'period', 'topic', and 'prompt'
+2. Headers should be 'id', 'category', 'topic', and 'prompt'
 3. Values in the 'id' column should be unique within the file
 """
 
@@ -53,10 +53,10 @@ class TestPromptsStructure:
             )
 
     def test_headers_are_correct(self, prompts_data):
-        """Test that the file has the correct headers: id, period, topic, prompt."""
+        """Test that the file has the correct headers: id, category, topic, prompt."""
         assert len(prompts_data) > 0, "File should not be empty"
 
-        expected_headers = ["id", "period", "topic", "prompt"]
+        expected_headers = ["id", "category", "topic", "prompt"]
         actual_headers = prompts_data[0]
 
         assert actual_headers == expected_headers, (
@@ -107,7 +107,7 @@ class TestPromptsStructure:
 
             # Check each column is non-empty
             for col_idx, (col_name, cell_value) in enumerate(
-                zip(["id", "period", "topic", "prompt"], row, strict=False)
+                zip(["id", "category", "topic", "prompt"], row, strict=False)
             ):
                 assert cell_value and cell_value.strip(), (
                     f"Row {row_num}, column '{col_name}' (index {col_idx}) is empty or whitespace-only"

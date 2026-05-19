@@ -24,7 +24,7 @@ def data_folder():
         data.mkdir()
 
         (data / "prompts.tsv").write_text(
-            "id\tperiod\ttopic\tprompt\n"
+            "id\tcategory\ttopic\tprompt\n"
             "1\tPolitics\tPopulism\tThe people lead\n"
             "2\tPolitics\tElitism\tThe elite rule\n"
             "3\tBabylonian\tGeo\tThere is destruction\n",
@@ -94,7 +94,7 @@ def test_export_writes_manifest_and_shards(data_folder):
         assert "chatgpt:gpt-4" in manifest["engines"]
         assert "claude:haiku" in manifest["engines"]
         assert "unknown" in manifest["engines"]  # legacy row
-        assert "Politics" in manifest["periods"]
+        assert "Politics" in manifest["categories"]
         assert "Populism" in manifest["topics"]
         assert manifest["files"]["prompts"] == "prompts.json"
         # Stories facet: only stories that have at least one result
@@ -113,8 +113,8 @@ def test_export_writes_manifest_and_shards(data_folder):
         genesis_rows = [json.loads(line) for line in genesis_shard.read_text().splitlines() if line]
         assert len(genesis_rows) == 2
         assert all(r["book"] == "Genesis" for r in genesis_rows)
-        # Enrichment: period/topic resolved from prompt id
-        assert any(r["period"] == "Politics" and r["topic"] == "Populism" for r in genesis_rows)
+        # Enrichment: category/topic resolved from prompt id
+        assert any(r["category"] == "Politics" and r["topic"] == "Populism" for r in genesis_rows)
 
         exodus_rows = [json.loads(line) for line in exodus_shard.read_text().splitlines() if line]
         assert len(exodus_rows) == 2
@@ -125,7 +125,7 @@ def test_export_writes_manifest_and_shards(data_folder):
         prompts_payload = json.loads((out_dir / "prompts.json").read_text())
         assert isinstance(prompts_payload, list)
         assert len(prompts_payload) == 3
-        assert all({"id", "period", "topic", "prompt"} <= set(p.keys()) for p in prompts_payload)
+        assert all({"id", "category", "topic", "prompt"} <= set(p.keys()) for p in prompts_payload)
 
         # stories.json
         stories_payload = json.loads((out_dir / "stories.json").read_text())

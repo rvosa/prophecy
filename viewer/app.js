@@ -84,16 +84,16 @@ function populateFilterOptions() {
 
   // Prompts tab: filters reflect the prompts.tsv content (all defined prompts),
   // since the tab is a browser for prompt definitions, not for cached results.
-  const allPromptPeriods = sortedUnique(state.prompts.map((p) => p.period));
+  const allPromptCategorys = sortedUnique(state.prompts.map((p) => p.category));
   const allPromptTopics = sortedUnique(state.prompts.map((p) => p.topic));
-  fillSelect("prompts-period", allPromptPeriods);
+  fillSelect("prompts-category", allPromptCategorys);
   fillSelect("prompts-topic", allPromptTopics);
 
   // Query/Responses tabs reflect the cached data only (manifest facets).
   const stories = m.stories || [];
   fillSelect("responses-book", m.books);
   fillSelect("responses-story", stories);
-  fillSelect("responses-period", m.periods);
+  fillSelect("responses-category", m.categories);
   fillSelect("responses-topic", m.topics);
   fillSelect("responses-engine", m.engines);
 
@@ -102,7 +102,7 @@ function populateFilterOptions() {
 
   // Multi-select checkbox lists on the Query tab. Default to all-checked so
   // an unconfigured query returns everything.
-  fillCheckboxList("query-period", m.periods, true);
+  fillCheckboxList("query-category", m.categories, true);
   fillCheckboxList("query-topic", m.topics, true);
   fillCheckboxList("query-engine", m.engines, true);
 }
@@ -192,14 +192,14 @@ function bindEvents() {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
   }
 
-  document.getElementById("prompts-period").addEventListener("change", renderPrompts);
+  document.getElementById("prompts-category").addEventListener("change", renderPrompts);
   document.getElementById("prompts-topic").addEventListener("change", renderPrompts);
   document.getElementById("prompts-search").addEventListener("input", debounce(renderPrompts, 150));
 
   for (const id of [
     "responses-book",
     "responses-story",
-    "responses-period",
+    "responses-category",
     "responses-topic",
     "responses-engine",
     "responses-answer",
@@ -271,12 +271,12 @@ function switchTab(name) {
 // ---------- Prompts tab ----------
 
 function renderPrompts() {
-  const period = document.getElementById("prompts-period").value;
+  const category = document.getElementById("prompts-category").value;
   const topic = document.getElementById("prompts-topic").value;
   const search = document.getElementById("prompts-search").value.toLowerCase();
 
   const rows = state.prompts.filter((p) => {
-    if (period && p.period !== period) return false;
+    if (category && p.category !== category) return false;
     if (topic && p.topic !== topic) return false;
     if (search && !p.prompt.toLowerCase().includes(search)) return false;
     return true;
@@ -292,7 +292,7 @@ function renderPrompts() {
       return `
       <tr>
         <td class="mono">${escapeHtml(p.id)}</td>
-        <td>${escapeHtml(p.period)}</td>
+        <td>${escapeHtml(p.category)}</td>
         <td>${escapeHtml(p.topic)}</td>
         <td>${escapeHtml(p.prompt)}</td>
         <td class="${cellClass}">${label}</td>
@@ -332,7 +332,7 @@ function shardsToScan(filterBook) {
 async function renderResponses() {
   const filterBook = document.getElementById("responses-book").value;
   const filterStory = document.getElementById("responses-story").value;
-  const filterPeriod = document.getElementById("responses-period").value;
+  const filterCategory = document.getElementById("responses-category").value;
   const filterTopic = document.getElementById("responses-topic").value;
   const filterEngine = document.getElementById("responses-engine").value;
   const filterAnswer = document.getElementById("responses-answer").value;
@@ -346,7 +346,7 @@ async function renderResponses() {
   for (const book of books) {
     for (const r of state.shardCache.get(book) || []) {
       if (filterStory && r.story !== filterStory) continue;
-      if (filterPeriod && r.period !== filterPeriod) continue;
+      if (filterCategory && r.category !== filterCategory) continue;
       if (filterTopic && r.topic !== filterTopic) continue;
       if (filterEngine && r.engine !== filterEngine) continue;
       if (filterAnswer !== "" && String(r.answer) !== filterAnswer) continue;
@@ -366,7 +366,7 @@ async function renderResponses() {
         <td>${escapeHtml(r.story)}</td>
         <td>${escapeHtml(r.book)}</td>
         <td class="mono">${escapeHtml(r.prompt)}</td>
-        <td>${escapeHtml(r.period)}</td>
+        <td>${escapeHtml(r.category)}</td>
         <td>${escapeHtml(r.topic)}</td>
         <td class="mono">${escapeHtml(r.engine)}</td>
         <td class="${r.answer ? "bool-true" : "bool-false"}">${r.answer ? "true" : "false"}</td>
@@ -388,14 +388,14 @@ async function runQuery() {
   // user see no rows rather than secretly include everything). A fully-checked
   // group is equivalent to no filter; we detect that explicitly to skip the
   // .includes() check on the hot path.
-  const periodChecked = readCheckedValues("query-period");
-  const periodTotal = readAllValues("query-period").length;
+  const categoryChecked = readCheckedValues("query-category");
+  const categoryTotal = readAllValues("query-category").length;
   const topicChecked = readCheckedValues("query-topic");
   const topicTotal = readAllValues("query-topic").length;
   const engineChecked = readCheckedValues("query-engine");
   const engineTotal = readAllValues("query-engine").length;
 
-  const periodFilter = periodChecked.length === periodTotal ? null : new Set(periodChecked);
+  const categoryFilter = categoryChecked.length === categoryTotal ? null : new Set(categoryChecked);
   const topicFilter = topicChecked.length === topicTotal ? null : new Set(topicChecked);
   const engineFilter = engineChecked.length === engineTotal ? null : new Set(engineChecked);
 
@@ -406,23 +406,23 @@ async function runQuery() {
   const books = shardsToScan(bookFilter);
   await loadShardsFor(books);
 
-  // Aggregate by (story, book, period, topic, engine) — same shape as the python query.
+  // Aggregate by (story, book, category, topic, engine) — same shape as the python query.
   const agg = new Map();
   for (const book of books) {
     for (const r of state.shardCache.get(book) || []) {
-      if (periodFilter && !periodFilter.has(r.period)) continue;
+      if (categoryFilter && !categoryFilter.has(r.category)) continue;
       if (topicFilter && !topicFilter.has(r.topic)) continue;
       if (engineFilter && !engineFilter.has(r.engine)) continue;
       if (storyFilter && r.story !== storyFilter) continue;
       if (r.certainty < minCert) continue;
 
-      const key = `${r.story}\t${r.book}\t${r.period}\t${r.topic}\t${r.engine}`;
+      const key = `${r.story}\t${r.book}\t${r.category}\t${r.topic}\t${r.engine}`;
       let bucket = agg.get(key);
       if (!bucket) {
         bucket = {
           story: r.story,
           book: r.book,
-          period: r.period,
+          category: r.category,
           topic: r.topic,
           engine: r.engine,
           hits: 0,
@@ -446,7 +446,7 @@ async function runQuery() {
     (a, b) =>
       b.hitRate - a.hitRate ||
       a.story.localeCompare(b.story) ||
-      a.period.localeCompare(b.period) ||
+      a.category.localeCompare(b.category) ||
       a.topic.localeCompare(b.topic) ||
       a.engine.localeCompare(b.engine),
   );
@@ -458,7 +458,7 @@ async function runQuery() {
       <tr>
         <td>${escapeHtml(r.story)}</td>
         <td>${escapeHtml(r.book)}</td>
-        <td>${escapeHtml(r.period)}</td>
+        <td>${escapeHtml(r.category)}</td>
         <td>${escapeHtml(r.topic)}</td>
         <td class="mono">${escapeHtml(r.engine)}</td>
         <td>${r.hits}</td>

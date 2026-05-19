@@ -93,7 +93,7 @@ class TestMainCLI:
                 'test_story:\n  book: Genesis\n  verses: ["1:1"]'
             )
             (data_path / "prompts.tsv").write_text(
-                "id\tprompt\tperiod\ttopic\n1\ttest prompt\ttest\ttest"
+                "id\tprompt\tcategory\ttopic\n1\ttest prompt\ttest\ttest"
             )
             (data_path / "template.txt").write_text("Test template")
             (data_path / "index.json").write_text("{}")

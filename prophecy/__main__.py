@@ -151,38 +151,40 @@ def parse_multi_value(raw_values: list[str] | None) -> list[str] | None:
 def select_prompts(
     prompts_obj: Prompts,
     prompt_arg: str,
-    period: str | list[str] | None,
+    category: str | list[str] | None,
     topic: str | list[str] | None,
 ) -> list[dict[str, str]]:
     """
-    Resolve the user's prompt selection from --prompt / --period / --topic.
+    Resolve the user's prompt selection from --prompt / --category / --topic.
 
-    --prompt is mutually exclusive with --period/--topic when it isn't "all".
-    --period and --topic narrow by intersection (any-of within each).
+    --prompt is mutually exclusive with --category/--topic when it isn't "all".
+    --category and --topic narrow by intersection (any-of within each).
     """
-    if prompt_arg != "all" and (period or topic):
+    if prompt_arg != "all" and (category or topic):
         raise ValueError(
-            "--prompt cannot be combined with --period or --topic. "
-            "Use --prompt for a single ID, or --period/--topic to select a group."
+            "--prompt cannot be combined with --category or --topic. "
+            "Use --prompt for a single ID, or --category/--topic to select a group."
         )
 
-    if period or topic:
-        period_list = [period] if isinstance(period, str) else (period or [])
+    if category or topic:
+        category_list = [category] if isinstance(category, str) else (category or [])
         topic_list = [topic] if isinstance(topic, str) else (topic or [])
 
         # Case-insensitive normalization against the prompts.tsv vocabulary.
-        available_periods = prompts_obj.get_periods()
+        available_categories = prompts_obj.get_categories()
         available_topics = prompts_obj.get_topics()
-        period_list = [normalize_known(p, available_periods, "Period") for p in period_list]
+        category_list = [
+            normalize_known(p, available_categories, "Category") for p in category_list
+        ]
         topic_list = [normalize_known(t, available_topics, "Topic") for t in topic_list]
 
         selected = prompts_obj.filter(
-            period=period_list or None,
+            category=category_list or None,
             topic=topic_list or None,
         )
         if not selected:
             raise ValueError(
-                f"No prompts match period={period_list or None!r} topic={topic_list or None!r}"
+                f"No prompts match category={category_list or None!r} topic={topic_list or None!r}"
             )
         return selected
 
@@ -191,14 +193,14 @@ def select_prompts(
 
 def build_concatenated_prompt(
     prompt_records: list[dict[str, str]],
-    period: str | list[str] | None,
+    category: str | list[str] | None,
     topic: str | list[str] | None,
 ) -> dict[str, str]:
     """
     Bundle a list of prompts into a single synthetic prompt record.
 
     The combined statement is rendered as a numbered list so the LLM can see
-    each sub-claim. The synthetic id is ``concat:<period>:<topic>`` (using
+    each sub-claim. The synthetic id is ``concat:<category>:<topic>`` (using
     "all" for any unset selector, joining lists with "+") so cached results
     stay introspectable.
     """
@@ -216,15 +218,15 @@ def build_concatenated_prompt(
         distinct = {p[key] for p in prompt_records}
         return next(iter(distinct)) if len(distinct) == 1 else "all"
 
-    period_label = _label(period, "period")
+    category_label = _label(category, "category")
     topic_label = _label(topic, "topic")
 
     body_lines = [f"{i + 1}. {p['prompt']}" for i, p in enumerate(prompt_records)]
     combined = "All of the following statements apply:\n" + "\n".join(body_lines)
 
     return {
-        "id": f"concat:{period_label}:{topic_label}",
-        "period": period_label,
+        "id": f"concat:{category_label}:{topic_label}",
+        "category": category_label,
         "topic": topic_label,
         "prompt": combined,
         "_concatenated_ids": ",".join(p["id"] for p in prompt_records),
@@ -246,10 +248,10 @@ def create_argument_parser() -> argparse.ArgumentParser:
             "  export   Assemble a static bundle of cached results for the viewer "
             "(see 'python -m prophecy export --help')\n\n"
             "Examples:\n"
-            "  python -m prophecy --period Politics --topic Populism --book Exodus\n"
+            "  python -m prophecy --category Politics --topic Populism --book Exodus\n"
             "  python -m prophecy --book Exodus,Genesis --prompt 152\n"
             "  python -m prophecy --topic Populism,Elitism --concatenate\n"
-            "  python -m prophecy query --period Politics --book Exodus\n"
+            "  python -m prophecy query --category Politics --book Exodus\n"
             "  python -m prophecy export --out dist/data"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -280,12 +282,12 @@ def create_argument_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--period",
+        "--category",
         action="append",
         default=None,
         help=(
-            "Select prompts by period (e.g. 'Politics'). Repeatable or comma-separated "
-            "for multiple (e.g. --period Politics --period Persian, or --period Politics,Persian). "
+            "Select prompts by category (e.g. 'Politics'). Repeatable or comma-separated "
+            "for multiple (e.g. --category Politics --category Persian, or --category Politics,Persian). "
             "Cannot combine with a specific --prompt."
         ),
     )
@@ -296,7 +298,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Select prompts by topic (e.g. 'Populism'). Repeatable or comma-separated. "
-            "Use with --period to narrow further. Cannot combine with a specific --prompt."
+            "Use with --category to narrow further. Cannot combine with a specific --prompt."
         ),
     )
 
@@ -414,7 +416,7 @@ def validate_inputs(stories, prompts, args, logger: logging.Logger):
         prompt_list = select_prompts(
             prompts,
             args.prompt,
-            parse_multi_value(getattr(args, "period", None)),
+            parse_multi_value(getattr(args, "category", None)),
             parse_multi_value(getattr(args, "topic", None)),
         )
     except ValueError as e:
@@ -633,7 +635,7 @@ def process_all_combinations(
     if concatenate:
         combined = build_concatenated_prompt(
             prompt_list,
-            parse_multi_value(getattr(args, "period", None)),
+            parse_multi_value(getattr(args, "category", None)),
             parse_multi_value(getattr(args, "topic", None)),
         )
         effective_prompts = [combined]
@@ -739,10 +741,10 @@ def _create_query_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data", help="Path to data folder (overrides PROPHECY_DATA_FOLDER)")
     parser.add_argument("--cache-folder", help="Path to cache folder (defaults to data/results)")
     parser.add_argument(
-        "--period",
+        "--category",
         action="append",
         default=None,
-        help="Filter results by prompt period. Repeatable or comma-separated.",
+        help="Filter results by prompt category. Repeatable or comma-separated.",
     )
     parser.add_argument(
         "--topic",
@@ -806,14 +808,14 @@ def _load_cached_results(cache_folder: Path, logger: logging.Logger) -> list[dic
 def _resolve_prompt_meta(
     prompt_id: str, prompt_meta: dict[str, tuple[str, str]]
 ) -> tuple[str, str]:
-    """Look up (period, topic) for a prompt id. Falls back for synthetic concat:* ids."""
+    """Look up (category, topic) for a prompt id. Falls back for synthetic concat:* ids."""
     if prompt_id in prompt_meta:
         return prompt_meta[prompt_id]
     if prompt_id.startswith("concat:"):
         parts = prompt_id.split(":", 2)
-        period = parts[1] if len(parts) > 1 and parts[1] else "concat"
+        category = parts[1] if len(parts) > 1 and parts[1] else "concat"
         topic = parts[2] if len(parts) > 2 and parts[2] else "concat"
-        return period, topic
+        return category, topic
     return "unknown", "unknown"
 
 
@@ -825,7 +827,7 @@ def _format_table(rows: list[dict[str, Any]]) -> str:
     columns = [
         ("story", "Story"),
         ("book", "Book"),
-        ("period", "Period"),
+        ("category", "Category"),
         ("topic", "Topic"),
         ("engine", "Engine"),
         ("hits", "Hits"),
@@ -863,23 +865,23 @@ def query_command(argv: list[str]) -> int:
         logger.error(f"{e}")
         return 1
 
-    prompt_meta = {p["id"]: (p["period"], p["topic"]) for p in prompts.get_prompts()}
+    prompt_meta = {p["id"]: (p["category"], p["topic"]) for p in prompts.get_prompts()}
     story_book = {title: stories.get_story(title).book for title in stories.titles}
 
     cache_folder = settings.resolve_cache_folder()
     raw_results = _load_cached_results(cache_folder, logger)
     logger.info(f"Loaded {len(raw_results)} cached results from {cache_folder}")
 
-    period_filter = parse_multi_value(args.period)
+    category_filter = parse_multi_value(args.category)
     topic_filter = parse_multi_value(args.topic)
     engine_filter = parse_multi_value(args.engine)
 
-    # Case-insensitive normalization for period/topic/book/story. Engine ids
+    # Case-insensitive normalization for category/topic/book/story. Engine ids
     # stay case-sensitive (they're identifiers like "chatgpt:gpt-4").
     try:
-        if period_filter:
-            period_filter = [
-                normalize_known(p, prompts.get_periods(), "Period") for p in period_filter
+        if category_filter:
+            category_filter = [
+                normalize_known(p, prompts.get_categories(), "Category") for p in category_filter
             ]
         if topic_filter:
             topic_filter = [normalize_known(t, prompts.get_topics(), "Topic") for t in topic_filter]
@@ -893,18 +895,18 @@ def query_command(argv: list[str]) -> int:
         logger.error(f"{e}")
         return 1
 
-    # Aggregate by (story, period, topic, engine) — engine in the key so per-engine
+    # Aggregate by (story, category, topic, engine) — engine in the key so per-engine
     # answers stay separable. Pre-engine cached files surface as engine="unknown".
     agg: dict[tuple[str, str, str, str, str], dict[str, float]] = {}
     for r in raw_results:
         story_title = str(r["story"])
         prompt_id = str(r["prompt"])
-        period, topic = _resolve_prompt_meta(prompt_id, prompt_meta)
+        category, topic = _resolve_prompt_meta(prompt_id, prompt_meta)
         book = story_book.get(story_title, "unknown")
         certainty = r.get("certainty", 0) or 0
         engine = str(r.get("engine") or "unknown")
 
-        if period_filter and period not in period_filter:
+        if category_filter and category not in category_filter:
             continue
         if topic_filter and topic not in topic_filter:
             continue
@@ -917,7 +919,7 @@ def query_command(argv: list[str]) -> int:
         if certainty < args.min_certainty:
             continue
 
-        key = (story_title, book, period, topic, engine)
+        key = (story_title, book, category, topic, engine)
         bucket = agg.setdefault(key, {"hits": 0, "total": 0, "cert_sum": 0.0})
         bucket["total"] += 1
         if r.get("answer"):
@@ -925,13 +927,13 @@ def query_command(argv: list[str]) -> int:
         bucket["cert_sum"] += certainty
 
     summary = []
-    for (story_title, book, period, topic, engine), bucket in agg.items():
+    for (story_title, book, category, topic, engine), bucket in agg.items():
         total = bucket["total"]
         summary.append(
             {
                 "story": story_title,
                 "book": book,
-                "period": period,
+                "category": category,
                 "topic": topic,
                 "engine": engine,
                 "hits": int(bucket["hits"]),
@@ -941,15 +943,15 @@ def query_command(argv: list[str]) -> int:
             }
         )
 
-    summary.sort(key=lambda r: (-r["hit_rate"], r["story"], r["period"], r["topic"], r["engine"]))
+    summary.sort(key=lambda r: (-r["hit_rate"], r["story"], r["category"], r["topic"], r["engine"]))
 
     if args.format == "json":
         print(json.dumps(summary, indent=2))
     elif args.format == "tsv":
-        print("story\tbook\tperiod\ttopic\tengine\thits\ttotal\thit_rate\tavg_certainty")
+        print("story\tbook\tcategory\ttopic\tengine\thits\ttotal\thit_rate\tavg_certainty")
         for row in summary:
             print(
-                f"{row['story']}\t{row['book']}\t{row['period']}\t{row['topic']}\t{row['engine']}\t"
+                f"{row['story']}\t{row['book']}\t{row['category']}\t{row['topic']}\t{row['engine']}\t"
                 f"{row['hits']}\t{row['total']}\t{row['hit_rate']:.4f}\t{row['avg_certainty']:.2f}"
             )
     else:
@@ -998,7 +1000,7 @@ def export_command(argv: list[str]) -> int:
       <out>/prompts.json   -- prompts.tsv converted to JSON
       <out>/stories.json   -- stories.yml converted to JSON
       <out>/results/<Book>.jsonl  -- one shard per book, enriched with
-                                     book/period/topic so the viewer can
+                                     book/category/topic so the viewer can
                                      filter without joining.
     """
     import datetime
@@ -1020,7 +1022,7 @@ def export_command(argv: list[str]) -> int:
     out_root.mkdir(parents=True, exist_ok=True)
     out_results.mkdir(parents=True, exist_ok=True)
 
-    prompt_meta = {p["id"]: (p["period"], p["topic"]) for p in prompts.get_prompts()}
+    prompt_meta = {p["id"]: (p["category"], p["topic"]) for p in prompts.get_prompts()}
     story_book = {title: stories.get_story(title).book for title in stories.titles}
 
     cache_folder = settings.resolve_cache_folder()
@@ -1030,7 +1032,7 @@ def export_command(argv: list[str]) -> int:
     # Group enriched rows by book.
     by_book: dict[str, list[dict[str, Any]]] = {}
     facets_engines: set[str] = set()
-    facets_periods: set[str] = set()
+    facets_categories: set[str] = set()
     facets_topics: set[str] = set()
     facets_stories: set[str] = set()
     result_count_by_prompt: dict[str, int] = {}
@@ -1038,7 +1040,7 @@ def export_command(argv: list[str]) -> int:
     for r in raw_results:
         story_title = str(r.get("story", ""))
         prompt_id = str(r.get("prompt", ""))
-        period, topic = _resolve_prompt_meta(prompt_id, prompt_meta)
+        category, topic = _resolve_prompt_meta(prompt_id, prompt_meta)
         book = story_book.get(story_title, "unknown")
         engine = str(r.get("engine") or "unknown")
 
@@ -1046,7 +1048,7 @@ def export_command(argv: list[str]) -> int:
             "story": story_title,
             "book": book,
             "prompt": prompt_id,
-            "period": period,
+            "category": category,
             "topic": topic,
             "engine": engine,
             "answer": bool(r.get("answer", False)),
@@ -1055,7 +1057,7 @@ def export_command(argv: list[str]) -> int:
         }
         by_book.setdefault(book, []).append(enriched)
         facets_engines.add(engine)
-        facets_periods.add(period)
+        facets_categories.add(category)
         facets_topics.add(topic)
         if story_title:
             facets_stories.add(story_title)
@@ -1083,7 +1085,7 @@ def export_command(argv: list[str]) -> int:
                 "row_count": len(rows),
                 "stories": sorted({r["story"] for r in rows}),
                 "engines": sorted({r["engine"] for r in rows}),
-                "periods": sorted({r["period"] for r in rows}),
+                "categories": sorted({r["category"] for r in rows}),
                 "topics": sorted({r["topic"] for r in rows}),
             }
         )
@@ -1112,7 +1114,7 @@ def export_command(argv: list[str]) -> int:
         "books": [s["book"] for s in shards],
         "stories": sorted(facets_stories),
         "engines": sorted(facets_engines),
-        "periods": sorted(facets_periods),
+        "categories": sorted(facets_categories),
         "topics": sorted(facets_topics),
         "used_prompt_ids": sorted(result_count_by_prompt.keys()),
         "result_count_by_prompt": dict(sorted(result_count_by_prompt.items())),
