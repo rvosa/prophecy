@@ -165,3 +165,57 @@ def test_export_empty_cache_writes_empty_manifest(data_folder):
         assert manifest["total_results"] == 0
         assert manifest["shards"] == []
         assert manifest["books"] == []
+
+
+def test_export_picks_up_labels_json(data_folder):
+    """If data/labels.json exists, it's copied into the bundle and listed in
+    the manifest under files.labels."""
+    labels_src = data_folder / "labels.json"
+    labels_src.write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-01-01T00:00:00Z",
+                "label_count": 1,
+                "labels": [
+                    {
+                        "story": "The Creation",
+                        "book": "Genesis",
+                        "engine": "chatgpt:gpt-4",
+                        "category": "Politics",
+                        "topic": "Populism",
+                        "hits": 1,
+                        "total": 1,
+                        "avg_certainty": 90.0,
+                        "prompts": [{"id": "1", "answer": True, "certainty": 90, "prompt": "test"}],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with tempfile.TemporaryDirectory() as out_tmp:
+        out_dir = Path(out_tmp) / "dist"
+        with patch.dict(os.environ, {"PROPHECY_DATA_FOLDER": str(data_folder)}, clear=False):
+            rc = export_command(["--out", str(out_dir), "--verbosity", "WARNING"])
+        assert rc == 0
+
+        bundled = out_dir / "labels.json"
+        assert bundled.exists()
+        assert json.loads(bundled.read_text())["label_count"] == 1
+
+        manifest = json.loads((out_dir / "index.json").read_text())
+        assert manifest["files"]["labels"] == "labels.json"
+
+
+def test_export_without_labels_json_omits_from_manifest(data_folder):
+    """Without data/labels.json, export still succeeds and files.labels is absent."""
+    with tempfile.TemporaryDirectory() as out_tmp:
+        out_dir = Path(out_tmp) / "dist"
+        with patch.dict(os.environ, {"PROPHECY_DATA_FOLDER": str(data_folder)}, clear=False):
+            rc = export_command(["--out", str(out_dir), "--verbosity", "WARNING"])
+        assert rc == 0
+
+        assert not (out_dir / "labels.json").exists()
+        manifest = json.loads((out_dir / "index.json").read_text())
+        assert "labels" not in manifest["files"]

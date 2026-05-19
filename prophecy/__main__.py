@@ -1109,7 +1109,30 @@ def export_command(argv: list[str]) -> int:
     with open(stories_json_path, "w", encoding="utf-8") as f:
         json.dump(stories_payload, f, separators=(",", ":"))
 
+    # If labels.json exists alongside the data folder, copy it into the bundle
+    # so the viewer can read it as a sibling of prompts.json / stories.json.
+    labels_src = Path(settings.data_folder) / "labels.json"
+    labels_included = False
+    if labels_src.exists():
+        labels_dst = out_root / "labels.json"
+        with open(labels_src, encoding="utf-8") as fsrc:
+            labels_data = json.load(fsrc)
+        with open(labels_dst, "w", encoding="utf-8") as fdst:
+            json.dump(labels_data, fdst, separators=(",", ":"))
+        labels_included = True
+        logger.info(f"Bundled labels.json ({labels_data.get('label_count', '?')} entries)")
+    else:
+        logger.info("No data/labels.json found — viewer Labels tab will be empty")
+
     # Write the manifest.
+    manifest_files = {
+        "prompts": "prompts.json",
+        "stories": "stories.json",
+        "results_dir": "results/",
+    }
+    if labels_included:
+        manifest_files["labels"] = "labels.json"
+
     manifest = {
         "generated_at": datetime.datetime.now(datetime.UTC)
         .isoformat(timespec="seconds")
@@ -1123,11 +1146,7 @@ def export_command(argv: list[str]) -> int:
         "used_prompt_ids": sorted(result_count_by_prompt.keys()),
         "result_count_by_prompt": dict(sorted(result_count_by_prompt.items())),
         "shards": shards,
-        "files": {
-            "prompts": "prompts.json",
-            "stories": "stories.json",
-            "results_dir": "results/",
-        },
+        "files": manifest_files,
     }
     with open(out_root / "index.json", "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
