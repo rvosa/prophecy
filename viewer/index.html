@@ -10,7 +10,8 @@
   <header>
     <h1>Prophecy Viewer</h1>
     <nav class="tabs">
-      <button class="tab-button active" data-tab="prompts">Prompts</button>
+      <button class="tab-button active" data-tab="labels">Labels</button>
+      <button class="tab-button" data-tab="prompts">Prompts</button>
       <button class="tab-button" data-tab="responses">Responses</button>
       <button class="tab-button" data-tab="query">Query</button>
     </nav>
@@ -18,7 +19,24 @@
   </header>
 
   <main>
-    <section id="tab-prompts" class="tab-panel active">
+    <section id="tab-labels" class="tab-panel active">
+      <div class="labels-layout">
+        <aside class="labels-tree" aria-label="Books and stories">
+          <ul id="labels-book-list" class="tree-root"></ul>
+        </aside>
+        <div class="labels-pane">
+          <div class="labels-toolbar">
+            <h2 id="labels-pane-title" class="muted">Select a book</h2>
+            <label class="labels-engine-pick">Engine
+              <select id="labels-engine"><option value="">(all)</option></select>
+            </label>
+          </div>
+          <div id="labels-pane-body"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-prompts" class="tab-panel">
       <div class="filters">
         <label>Category
           <select id="prompts-category"><option value="">(all)</option></select>

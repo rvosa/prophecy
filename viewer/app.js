@@ -15,7 +15,13 @@ const state = {
   manifest: null,
   prompts: [],
   stories: {},
+  labels: [],            // flat list from data/labels.json (empty if not bundled)
   shardCache: new Map(), // book -> rows[]
+
+  // Labels tab UI state
+  labelsBookSelected: null,   // book name currently expanded/selected
+  labelsStorySelected: null,  // story name currently selected (null = book-grid view)
+  labelsEngine: "",           // engine filter ("" = all engines)
 };
 
 // ---------- Bootstrap ----------
@@ -31,6 +37,19 @@ async function bootstrap() {
     state.prompts = prompts;
     state.stories = stories;
 
+    // Labels are optional — only present if `prophecy label` was run before
+    // the export. Don't fail bootstrap if missing; the Labels tab will say so.
+    const labelsFile = manifest.files && manifest.files.labels;
+    if (labelsFile) {
+      try {
+        const labelsPayload = await fetchJson(`${DATA_ROOT}/${labelsFile}`);
+        state.labels = labelsPayload.labels || [];
+      } catch (err) {
+        console.warn(`Failed to load labels file ${labelsFile}:`, err);
+        state.labels = [];
+      }
+    }
+
     const usedCount = (manifest.used_prompt_ids || []).length;
     document.getElementById("manifest-summary").textContent =
       `${manifest.total_results.toLocaleString()} results, ${manifest.books.length} books, ` +
@@ -41,6 +60,7 @@ async function bootstrap() {
 
     populateFilterOptions();
     renderPrompts();
+    renderLabelsTab();
     bindEvents();
   } catch (err) {
     showFatal(err);
@@ -212,6 +232,12 @@ function bindEvents() {
 
   document.getElementById("query-run").addEventListener("click", runQuery);
 
+  // Labels tab: engine dropdown rerenders the right pane.
+  document.getElementById("labels-engine").addEventListener("change", (e) => {
+    state.labelsEngine = e.target.value;
+    renderLabelsPaneBody();
+  });
+
   // All/none buttons inside multi-select panels.
   for (const btn of document.querySelectorAll(".multi-actions button")) {
     btn.addEventListener("click", () => {
@@ -266,6 +292,227 @@ function switchTab(name) {
     panel.classList.toggle("active", panel.id === `tab-${name}`);
   }
   if (name === "responses") renderResponses();
+}
+
+// ---------- Labels tab ----------
+
+function renderLabelsTab() {
+  // Engine dropdown reflects the set of engines actually present in labels.
+  const engineSelect = document.getElementById("labels-engine");
+  // Preserve the "(all)" first option, append the rest.
+  engineSelect.length = 1;
+  const engines = sortedUnique(state.labels.map((l) => l.engine));
+  for (const e of engines) {
+    const opt = document.createElement("option");
+    opt.value = e;
+    opt.textContent = e;
+    engineSelect.appendChild(opt);
+  }
+
+  renderLabelsTree();
+  renderLabelsPaneBody();
+}
+
+function renderLabelsTree() {
+  const root = document.getElementById("labels-book-list");
+  // Books that actually have at least one label entry. Falls back to the
+  // manifest's `books` if labels.json wasn't bundled.
+  const labeledBooks = sortedUnique(state.labels.map((l) => l.book));
+  const books = labeledBooks.length
+    ? labeledBooks
+    : Array.from(state.manifest.books || []);
+
+  root.innerHTML = books
+    .map((book) => {
+      const isExpanded = state.labelsBookSelected === book;
+      const isActive = isExpanded;
+      // Stories within this book that have labels.
+      const stories = sortedUnique(
+        state.labels.filter((l) => l.book === book).map((l) => l.story),
+      );
+      const storyItems = stories
+        .map((s) => {
+          const cls = state.labelsStorySelected === s ? "tree-story active" : "tree-story";
+          return `<li class="${cls}" data-book="${escapeHtml(book)}" data-story="${escapeHtml(s)}">${escapeHtml(s)}</li>`;
+        })
+        .join("");
+
+      return `
+        <li class="tree-book ${isExpanded ? "expanded" : ""} ${isActive ? "active" : ""}" data-book="${escapeHtml(book)}">
+          <div class="tree-book-title">
+            <span class="tree-book-chevron">▶</span>
+            <span>${escapeHtml(book)}</span>
+          </div>
+          <ul class="tree-story-list">${storyItems}</ul>
+        </li>`;
+    })
+    .join("");
+
+  // Wire up clicks.
+  for (const node of root.querySelectorAll(".tree-book-title")) {
+    node.addEventListener("click", () => {
+      const book = node.parentElement.dataset.book;
+      if (state.labelsBookSelected === book) {
+        // Clicking the same book collapses it and clears the story selection.
+        state.labelsBookSelected = null;
+        state.labelsStorySelected = null;
+      } else {
+        state.labelsBookSelected = book;
+        state.labelsStorySelected = null;
+      }
+      renderLabelsTree();
+      renderLabelsPaneBody();
+    });
+  }
+  for (const node of root.querySelectorAll(".tree-story")) {
+    node.addEventListener("click", (e) => {
+      e.stopPropagation();
+      state.labelsBookSelected = node.dataset.book;
+      state.labelsStorySelected = node.dataset.story;
+      renderLabelsTree();
+      renderLabelsPaneBody();
+    });
+  }
+}
+
+function labelsForCurrentEngine() {
+  // Filter the label list by the engine dropdown. Empty value = all engines.
+  if (!state.labelsEngine) return state.labels;
+  return state.labels.filter((l) => l.engine === state.labelsEngine);
+}
+
+function renderLabelsPaneBody() {
+  const title = document.getElementById("labels-pane-title");
+  const body = document.getElementById("labels-pane-body");
+
+  if (!state.labels.length) {
+    title.textContent = "No labels available";
+    body.innerHTML = `<div class="labels-empty">
+      Run <code>python -m prophecy label</code> and re-export to populate this tab.
+    </div>`;
+    return;
+  }
+
+  if (!state.labelsBookSelected) {
+    title.textContent = "Select a book";
+    body.innerHTML = `<div class="labels-empty">Pick a book on the left to see its stories and labels.</div>`;
+    return;
+  }
+
+  const filtered = labelsForCurrentEngine();
+  const bookLabels = filtered.filter((l) => l.book === state.labelsBookSelected);
+
+  if (!bookLabels.length) {
+    title.textContent = state.labelsBookSelected;
+    body.innerHTML = `<div class="labels-empty">No labels for this book with the current engine filter.</div>`;
+    return;
+  }
+
+  if (!state.labelsStorySelected) {
+    renderBookGrid(bookLabels, title, body);
+  } else {
+    const storyLabels = bookLabels.filter((l) => l.story === state.labelsStorySelected);
+    renderStoryDetail(state.labelsStorySelected, state.labelsBookSelected, storyLabels, title, body);
+  }
+}
+
+function renderBookGrid(bookLabels, title, body) {
+  const book = state.labelsBookSelected;
+  title.textContent = `${book}`;
+
+  // Group labels by story; render one row per story with chips.
+  const byStory = new Map();
+  for (const l of bookLabels) {
+    if (!byStory.has(l.story)) byStory.set(l.story, []);
+    byStory.get(l.story).push(l);
+  }
+
+  // Stable, alphabetical order by story title.
+  const stories = Array.from(byStory.keys()).sort();
+  const rows = stories
+    .map((story) => {
+      const labels = byStory.get(story);
+      // Most distinctive labels first (highest hit count).
+      labels.sort((a, b) => b.hits - a.hits || a.topic.localeCompare(b.topic));
+      const chips = labels
+        .map(
+          (l) =>
+            `<span class="label-chip" data-category="${escapeHtml(l.category)}"
+                   title="${escapeHtml(l.topic)}:${escapeHtml(l.category)} — ${l.hits}/${l.total} (avg ${l.avg_certainty})">
+              ${escapeHtml(l.topic)}
+              <span class="label-chip-score">${l.hits}/${l.total}</span>
+            </span>`,
+        )
+        .join("");
+      const labelCount = labels.length;
+      return `
+        <div class="story-grid-row" data-story="${escapeHtml(story)}">
+          <div class="story-grid-name">
+            ${escapeHtml(story)}
+            <span class="story-meta">${labelCount} label${labelCount === 1 ? "" : "s"}</span>
+          </div>
+          <div class="story-grid-chips">${chips}</div>
+        </div>`;
+    })
+    .join("");
+
+  body.innerHTML = `<div class="story-grid">${rows}</div>`;
+
+  // Click a row → drill into story detail.
+  for (const row of body.querySelectorAll(".story-grid-row")) {
+    row.addEventListener("click", () => {
+      state.labelsStorySelected = row.dataset.story;
+      renderLabelsTree();
+      renderLabelsPaneBody();
+    });
+  }
+}
+
+function renderStoryDetail(story, book, storyLabels, title, body) {
+  title.innerHTML = `${escapeHtml(story)} <span class="muted">(${escapeHtml(book)})</span>`;
+
+  // Order labels by hit count desc.
+  storyLabels.sort((a, b) => b.hits - a.hits || a.topic.localeCompare(b.topic));
+
+  const cards = storyLabels
+    .map((l) => {
+      const pct = l.total ? (l.hits / l.total) * 100 : 0;
+      const promptRows = l.prompts
+        .map((p) => {
+          const ans = p.answer ? "✓" : "✗";
+          const ansCls = p.answer ? "answer-true" : "answer-false";
+          const liCls = p.answer ? "" : "is-false";
+          return `<li class="${liCls}">
+            <span class="answer-mark ${ansCls}">${ans}</span>
+            <span class="prompt-id">#${escapeHtml(p.id)}</span>
+            <span class="prompt-text">${escapeHtml(p.prompt)}</span>
+            <span class="prompt-cert">${p.certainty}</span>
+          </li>`;
+        })
+        .join("");
+      const engineNote =
+        state.labelsEngine || storyLabels.every((x) => x.engine === l.engine)
+          ? ""
+          : `<span class="muted" style="font-size:11px"> · ${escapeHtml(l.engine)}</span>`;
+      return `
+        <article class="label-card" data-category="${escapeHtml(l.category)}">
+          <div class="label-card-head">
+            <h3 class="label-card-title">
+              ${escapeHtml(l.topic)}
+              <span class="label-card-category">:${escapeHtml(l.category)}</span>
+              ${engineNote}
+            </h3>
+            <div class="label-card-score">
+              <div>${l.hits} / ${l.total} · avg cert ${l.avg_certainty}</div>
+              <div class="label-card-bar"><div class="label-card-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>
+            </div>
+          </div>
+          <ul class="label-card-prompts">${promptRows}</ul>
+        </article>`;
+    })
+    .join("");
+
+  body.innerHTML = `<div class="label-cards">${cards}</div>`;
 }
 
 // ---------- Prompts tab ----------

@@ -9,6 +9,20 @@
   --true: #2f855a;
   --false: #c53030;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Soft category palette — muted pastels, override per-category as needed. */
+  --cat-babylonian: #d6e6f2;
+  --cat-babylonian-text: #2e5879;
+  --cat-hellenistic: #f0e3cf;
+  --cat-hellenistic-text: #7a5a2e;
+  --cat-persian: #e1d6ec;
+  --cat-persian-text: #5a3e7a;
+  --cat-politics: #d8e8d3;
+  --cat-politics-text: #3f6635;
+  --cat-test: #e2e4e8;
+  --cat-test-text: #5a5e66;
+  --cat-default: #ececec;
+  --cat-default-text: #525252;
 }
 
 * { box-sizing: border-box; }
@@ -276,4 +290,321 @@ footer {
   border-top: 1px solid var(--border);
   font-size: 11px;
   color: var(--muted);
+}
+
+/* Labels tab: tree (left) + pane (right). */
+.labels-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 20px;
+  min-height: 600px;
+}
+
+.labels-tree {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-y: auto;
+  max-height: calc(100vh - 180px);
+  padding: 8px 6px;
+  font-size: 13px;
+}
+
+.tree-root {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tree-book {
+  margin: 0;
+}
+
+.tree-book-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 3px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.tree-book-title:hover {
+  background: var(--row-hover);
+}
+
+.tree-book.active > .tree-book-title {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.tree-book-chevron {
+  font-size: 10px;
+  color: var(--muted);
+  display: inline-block;
+  width: 10px;
+  transition: transform 0.15s ease;
+}
+
+.tree-book.expanded > .tree-book-title .tree-book-chevron {
+  transform: rotate(90deg);
+}
+
+.tree-story-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 4px 22px;
+  display: none;
+}
+
+.tree-book.expanded > .tree-story-list {
+  display: block;
+}
+
+.tree-story {
+  padding: 3px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--fg);
+  font-weight: 400;
+}
+
+.tree-story:hover {
+  background: var(--row-hover);
+}
+
+.tree-story.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.labels-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.labels-toolbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  gap: 16px;
+}
+
+#labels-pane-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.labels-engine-pick {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  color: var(--muted);
+  gap: 4px;
+}
+
+.labels-engine-pick select {
+  font: inherit;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: white;
+  min-width: 200px;
+}
+
+#labels-pane-body {
+  min-width: 0;
+}
+
+/* Book-grid view (no specific story selected): one row per story with chips. */
+.story-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.story-grid-row {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 16px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: white;
+  align-items: center;
+  cursor: pointer;
+}
+
+.story-grid-row:hover {
+  background: var(--row-hover);
+}
+
+.story-grid-name {
+  font-weight: 600;
+}
+
+.story-grid-name .story-meta {
+  display: block;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.story-grid-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 11px;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--cat-default);
+  color: var(--cat-default-text);
+}
+
+.label-chip[data-category="Babylonian"]   { background: var(--cat-babylonian);   color: var(--cat-babylonian-text); }
+.label-chip[data-category="Hellenistic"]  { background: var(--cat-hellenistic);  color: var(--cat-hellenistic-text); }
+.label-chip[data-category="Persian"]      { background: var(--cat-persian);      color: var(--cat-persian-text); }
+.label-chip[data-category="Politics"]     { background: var(--cat-politics);     color: var(--cat-politics-text); }
+.label-chip[data-category="Test"]         { background: var(--cat-test);         color: var(--cat-test-text); }
+
+.label-chip-score {
+  font-family: var(--mono);
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+/* Story-detail view: one card per label. */
+.label-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.label-card {
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 5px;
+  background: white;
+  overflow: hidden;
+}
+
+.label-card[data-category="Babylonian"]   { border-left-color: var(--cat-babylonian-text); }
+.label-card[data-category="Hellenistic"]  { border-left-color: var(--cat-hellenistic-text); }
+.label-card[data-category="Persian"]      { border-left-color: var(--cat-persian-text); }
+.label-card[data-category="Politics"]     { border-left-color: var(--cat-politics-text); }
+.label-card[data-category="Test"]         { border-left-color: var(--cat-test-text); }
+
+.label-card-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--row-hover);
+  border-bottom: 1px solid var(--border);
+}
+
+.label-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.label-card-title .label-card-category {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.label-card-score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.label-card-bar {
+  width: 120px;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.label-card-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.label-card-prompts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.label-card-prompts li {
+  display: grid;
+  grid-template-columns: 14px 36px 1fr 38px;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 14px;
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.label-card-prompts li:first-child {
+  border-top: none;
+}
+
+.label-card-prompts .answer-mark {
+  font-weight: 700;
+}
+
+.label-card-prompts .answer-true { color: var(--true); }
+.label-card-prompts .answer-false { color: var(--false); opacity: 0.6; }
+
+.label-card-prompts .prompt-id {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.label-card-prompts .prompt-text {
+  min-width: 0;
+}
+
+.label-card-prompts .prompt-cert {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.label-card-prompts li.is-false .prompt-text {
+  color: var(--muted);
+}
+
+.labels-empty {
+  padding: 32px;
+  text-align: center;
+  color: var(--muted);
+  background: var(--row-hover);
+  border-radius: 6px;
 }
