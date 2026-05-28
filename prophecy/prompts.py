@@ -26,10 +26,17 @@ class Prompts:
         Initialize the Prompts class.
 
         Args:
-            data_folder: Path to the data folder containing prompts.tsv and
-                template.txt. If None, falls back to ``Settings.load()``,
-                which layers prophecy.toml, the PROPHECY_DATA_FOLDER env
-                var, and the dataclass default ('data').
+            data_folder: Path to the data folder containing ``prompts.tsv``
+                (required), any number of auxiliary ``prompts.<name>.tsv``
+                files, and ``template.txt``. If None, falls back to
+                ``Settings.load()``, which layers prophecy.toml, the
+                PROPHECY_DATA_FOLDER env var, and the dataclass default
+                ('data').
+
+        Auxiliary prompt files let contributors keep topical prompt sets
+        (e.g. ``prompts.politics.tsv``) in their own files. All matching
+        ``prompts*.tsv`` files are merged on load, with IDs required to be
+        globally unique across the set.
         """
         if data_folder is None:
             data_folder = Settings.load().data_folder
@@ -40,10 +47,12 @@ class Prompts:
         if not self.data_folder.exists():
             raise FileNotFoundError(f"Data folder not found: {self.data_folder}")
 
-        # Load the prompts.tsv file
+        # The main prompts.tsv is required; auxiliary prompts.<name>.tsv
+        # files are picked up automatically when present.
         self.prompts_path = self.data_folder / "prompts.tsv"
         if not self.prompts_path.exists():
             raise FileNotFoundError(f"Prompts file not found: {self.prompts_path}")
+        self.prompts_paths: list[Path] = self._discover_prompt_files()
 
         # Load the template.txt file
         self.template_path = self.data_folder / "template.txt"
@@ -58,14 +67,34 @@ class Prompts:
         with open(self.template_path, encoding="utf-8") as f:
             self._template_content = f.read()
 
-    def _load_prompts(self):
-        """Load prompts data from the TSV file."""
-        with open(self.prompts_path, encoding="utf-8") as f:
-            reader = csv.DictReader(f, delimiter="\t")
-            self._prompts_data = list(reader)
+    def _discover_prompt_files(self) -> list[Path]:
+        """Return the main prompts.tsv first, then auxiliary prompts.*.tsv files sorted by name."""
+        aux = sorted(p for p in self.data_folder.glob("prompts.*.tsv") if p != self.prompts_path)
+        return [self.prompts_path, *aux]
 
-        if not self._prompts_data:
-            raise ValueError(f"No prompts data found in {self.prompts_path}")
+    def _load_prompts(self):
+        """Load and merge prompts data from every discovered TSV, enforcing global ID uniqueness."""
+        merged: list[dict[str, str]] = []
+        id_origin: dict[str, Path] = {}
+        for path in self.prompts_paths:
+            with open(path, encoding="utf-8") as f:
+                reader = csv.DictReader(f, delimiter="\t")
+                rows = list(reader)
+            for row in rows:
+                prompt_id = row.get("id", "")
+                if prompt_id in id_origin:
+                    raise ValueError(
+                        f"Duplicate prompt id '{prompt_id}' in {path} "
+                        f"(already defined in {id_origin[prompt_id]})"
+                    )
+                id_origin[prompt_id] = path
+                merged.append(row)
+
+        if not merged:
+            raise ValueError(
+                f"No prompts data found in {', '.join(str(p) for p in self.prompts_paths)}"
+            )
+        self._prompts_data = merged
 
     def get_prompts(self) -> list[dict[str, str]]:
         """
