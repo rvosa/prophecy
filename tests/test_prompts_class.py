@@ -21,13 +21,15 @@ class TestPrompts:
 
     @pytest.fixture
     def temp_data_folder(self):
-        """Create a temporary data folder with test prompts.tsv and template.txt."""
+        """Create a temporary data folder with test data/prompts/{prompts.tsv,template.txt}."""
         with tempfile.TemporaryDirectory() as temp_dir:
             data_dir = Path(temp_dir) / "data"
             data_dir.mkdir()
+            prompts_dir = data_dir / "prompts"
+            prompts_dir.mkdir()
 
             # Create test prompts.tsv with actual tab characters
-            with open(data_dir / "prompts.tsv", "w", encoding="utf-8") as f:
+            with open(prompts_dir / "prompts.tsv", "w", encoding="utf-8") as f:
                 f.write("id\tcategory\ttopic\tprompt\n")
                 f.write(
                     "1\tBabylonian\tGeopolitical Danger\tThere is an upcoming significant man-made destruction\n"
@@ -51,7 +53,7 @@ Below is the text fragment:
 
 $text"""
 
-            with open(data_dir / "template.txt", "w", encoding="utf-8") as f:
+            with open(prompts_dir / "template.txt", "w", encoding="utf-8") as f:
                 f.write(template_content)
 
             yield str(data_dir)
@@ -88,20 +90,20 @@ $text"""
 
     def test_init_missing_prompts_file(self, temp_data_folder):
         """Test Prompts initialization with missing prompts.tsv."""
-        os.remove(Path(temp_data_folder) / "prompts.tsv")
+        os.remove(Path(temp_data_folder) / "prompts" / "prompts.tsv")
         with pytest.raises(FileNotFoundError, match="Prompts file not found"):
             Prompts(temp_data_folder)
 
     def test_init_missing_template_file(self, temp_data_folder):
         """Test Prompts initialization with missing template.txt."""
-        os.remove(Path(temp_data_folder) / "template.txt")
+        os.remove(Path(temp_data_folder) / "prompts" / "template.txt")
         with pytest.raises(FileNotFoundError, match="Template file not found"):
             Prompts(temp_data_folder)
 
     def test_init_empty_prompts_file(self, temp_data_folder):
         """Test Prompts initialization with empty prompts.tsv."""
         # Write only header
-        with open(Path(temp_data_folder) / "prompts.tsv", "w") as f:
+        with open(Path(temp_data_folder) / "prompts" / "prompts.tsv", "w") as f:
             f.write("id\tcategory\ttopic\tprompt\n")
 
         with pytest.raises(ValueError, match="No prompts data found"):

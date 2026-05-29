@@ -22,12 +22,14 @@ def data_folder():
     with tempfile.TemporaryDirectory() as tmp:
         data = Path(tmp) / "data"
         data.mkdir()
+        (data / "prompts").mkdir()
+        (data / "stories").mkdir()
         # Settings needs these files to load, even if prune doesn't read them.
-        (data / "prompts.tsv").write_text(
+        (data / "prompts" / "prompts.tsv").write_text(
             "id\tcategory\ttopic\tprompt\n1\tCat\tTopic\ttext\n", encoding="utf-8"
         )
-        (data / "template.txt").write_text("$prompt\n$text", encoding="utf-8")
-        (data / "stories.yml").write_text(
+        (data / "prompts" / "template.txt").write_text("$prompt\n$text", encoding="utf-8")
+        (data / "stories" / "stories.yml").write_text(
             "X:\n  book: Genesis\n  verses: ['1:1']\n", encoding="utf-8"
         )
         (data / "index.json").write_text("{}", encoding="utf-8")
@@ -121,11 +123,13 @@ def test_prune_missing_cache_folder():
     with tempfile.TemporaryDirectory() as tmp:
         data = Path(tmp) / "data"
         data.mkdir()
-        (data / "prompts.tsv").write_text(
+        (data / "prompts").mkdir()
+        (data / "stories").mkdir()
+        (data / "prompts" / "prompts.tsv").write_text(
             "id\tcategory\ttopic\tprompt\n1\tCat\tTopic\ttext\n", encoding="utf-8"
         )
-        (data / "template.txt").write_text("$prompt\n$text", encoding="utf-8")
-        (data / "stories.yml").write_text(
+        (data / "prompts" / "template.txt").write_text("$prompt\n$text", encoding="utf-8")
+        (data / "stories" / "stories.yml").write_text(
             "X:\n  book: Genesis\n  verses: ['1:1']\n", encoding="utf-8"
         )
         (data / "index.json").write_text("{}", encoding="utf-8")

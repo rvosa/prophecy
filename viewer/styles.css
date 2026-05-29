@@ -426,6 +426,17 @@ footer {
   min-width: 200px;
 }
 
+.labels-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  align-self: end;
+  padding-bottom: 4px;
+}
+
 #labels-pane-body {
   min-width: 0;
 }
@@ -493,6 +504,148 @@ footer {
   font-family: var(--mono);
   font-size: 11px;
   opacity: 0.75;
+}
+
+/* Same color family as the attributed chip but stripped of fill so the eye
+   can ignore them when scanning for attributed ones. */
+.label-chip-unattributed {
+  background: transparent !important;
+  color: var(--muted) !important;
+  border: 1px dashed var(--border);
+}
+
+/* Source chips (E, P, J, …) — visually distinct from category chips so the
+   cataloguing tags don't read as derived labels. */
+.source-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 11px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  background: transparent;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+}
+
+.source-chip-row {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* Biblical text panel that sits above the label cards on the story-detail
+   view. Hebrew renders larger and right-to-left; the verse refs caption sits
+   above as a small LTR label. The body collapses to a few lines by default
+   with a fade-out gradient to signal the truncation. */
+.story-text {
+  --story-text-bg: #fafaf6;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--story-text-bg);
+}
+
+.story-text-verses {
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.story-text-clip {
+  position: relative;
+  overflow: hidden;
+  /* Expanded state: enough room for any pericope. JS sets the data-collapsed
+     attribute back to "true" on a click to undo this. */
+  max-height: none;
+}
+
+.story-text[data-collapsed="true"] .story-text-clip {
+  /* ~2 lines at the body's 1.9 line-height, with a sliver of the third line
+     peeking through behind the gradient so the truncation is obvious. */
+  max-height: 4.5em;
+}
+
+.story-text[data-collapsed="true"] .story-text-clip::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2.2em;
+  background: linear-gradient(to bottom, transparent, var(--story-text-bg));
+  pointer-events: none;
+}
+
+.story-text-body {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.9;
+  font-family: "SBL Hebrew", "Ezra SIL", "Times New Roman", serif;
+}
+
+.story-text-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.story-text-toggle:hover {
+  color: inherit;
+}
+
+/* Toggle button shows one label or the other based on collapsed state, so
+   the click handler only has to flip the attribute — no JS text swap. */
+.story-text[data-collapsed="true"] .story-text-toggle-hide,
+.story-text:not([data-collapsed="true"]) .story-text-toggle-show {
+  display: none;
+}
+
+.story-text-missing {
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Collapsed list of false-answer prompts inside a label card. The summary
+   reads like inline text rather than a button so it stays unobtrusive when
+   the user just wants the positive evidence. */
+.label-card-false {
+  margin-top: 6px;
+}
+
+.label-card-false > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  list-style: none;
+  padding: 2px 0;
+}
+
+.label-card-false > summary::-webkit-details-marker {
+  display: none;
+}
+
+.label-card-false > summary::before {
+  content: "▸ ";
+  display: inline-block;
+  width: 1em;
+}
+
+.label-card-false[open] > summary::before {
+  content: "▾ ";
+}
+
+.label-card-false > .label-card-prompts {
+  margin-top: 4px;
 }
 
 /* Story-detail view: one card per label. */
@@ -568,17 +721,51 @@ footer {
 }
 
 .label-card-prompts li {
-  display: grid;
-  grid-template-columns: 14px 36px 1fr 38px;
-  gap: 8px;
-  align-items: baseline;
-  padding: 6px 14px;
   font-size: 12px;
   border-top: 1px solid var(--border);
 }
 
 .label-card-prompts li:first-child {
   border-top: none;
+}
+
+/* Each row is a <details>; the <summary> holds the grid layout so the row
+   itself becomes the click target that toggles the rationale below. */
+.prompt-row {
+  margin: 0;
+}
+
+.prompt-row-summary {
+  display: grid;
+  /* Auto-size the id, cache, and cert columns so they fit their longest
+     content instead of clipping. The prompt-text column gets whatever's
+     left. min-width:0 on the text cell lets it wrap inside the 1fr track. */
+  grid-template-columns: 14px auto auto 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.prompt-row-summary::-webkit-details-marker { display: none; }
+.prompt-row-summary::marker { display: none; }
+
+.prompt-row[open] .prompt-row-summary {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.prompt-rationale {
+  padding: 8px 14px 12px 36px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #333;
+  background: rgba(0, 0, 0, 0.02);
+  white-space: pre-wrap;
+}
+
+.prompt-rationale-empty {
+  font-style: italic;
 }
 
 .label-card-prompts .answer-mark {
@@ -592,6 +779,17 @@ footer {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--muted);
+  white-space: nowrap;
+}
+
+/* Last 8 chars of the cache MD5 — lets the user grep the cache folder back
+   to the source file. Visually subordinated to the prompt id. */
+.label-card-prompts .prompt-cache {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  opacity: 0.7;
+  white-space: nowrap;
 }
 
 .label-card-prompts .prompt-text {
@@ -603,10 +801,22 @@ footer {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .label-card-prompts li.is-false .prompt-text {
   color: var(--muted);
+}
+
+/* Non-attributed labels (hits == 0). Dimmed and outline-only so they read
+   as background context rather than findings. */
+.label-card-unattributed {
+  opacity: 0.65;
+  border-style: dashed;
+}
+
+.label-card-unattributed .label-card-bar-fill {
+  background: var(--muted);
 }
 
 .labels-empty {

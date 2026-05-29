@@ -32,8 +32,10 @@ def data_folder():
     with tempfile.TemporaryDirectory() as tmp:
         data = Path(tmp) / "data"
         data.mkdir()
+        (data / "prompts").mkdir()
+        (data / "stories").mkdir()
 
-        (data / "prompts.tsv").write_text(
+        (data / "prompts" / "prompts.tsv").write_text(
             "id\tcategory\ttopic\tprompt\n"
             "1\tBabylonian\tGeo\tThere is destruction\n"
             "2\tBabylonian\tGeo\tThere is famine\n"
@@ -42,8 +44,8 @@ def data_folder():
             "5\tPolitics\tElitism\tThe leaders rage at the people\n",
             encoding="utf-8",
         )
-        (data / "template.txt").write_text('"$prompt"\n\n"$text"\n', encoding="utf-8")
-        (data / "stories.yml").write_text(
+        (data / "prompts" / "template.txt").write_text('"$prompt"\n\n"$text"\n', encoding="utf-8")
+        (data / "stories" / "stories.yml").write_text(
             "Sample Story:\n  book: Genesis\n  verses: ['1:1']\n"
             "Exodus Story:\n  book: Exodus\n  verses: ['1:1']\n"
             "Another Genesis Story:\n  book: Genesis\n  verses: ['2:1']\n",

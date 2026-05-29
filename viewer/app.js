@@ -25,6 +25,7 @@ const state = {
   labelsEngine: "",                 // engine filter ("" = all engines)
   labelsCategoryFilter: null,       // Set of allowed categories, null = all
   labelsTopicFilter: null,          // Set of allowed topics, null = all
+  labelsShowUnattributed: false,    // false: hide zero-hit groups (default)
 };
 
 // ---------- Bootstrap ----------
@@ -197,6 +198,18 @@ function sortedUnique(values) {
   return Array.from(new Set(values.filter(Boolean))).sort();
 }
 
+// Render the optional ``sources`` tags for a story as label chips.
+// Returns an array of HTML strings (one chip per source); empty if the
+// story has no declared sources.
+function sourceChips(story) {
+  const meta = state.stories[story];
+  const sources = (meta && meta.sources) || [];
+  return sources.map(
+    (src) =>
+      `<span class="source-chip" title="Source: ${escapeHtml(src)}">${escapeHtml(src)}</span>`,
+  );
+}
+
 function fillSelect(id, options) {
   const el = document.getElementById(id);
   // Preserve the existing "(all)" placeholder.
@@ -238,6 +251,15 @@ function bindEvents() {
   // Labels tab: engine dropdown rerenders the right pane.
   document.getElementById("labels-engine").addEventListener("change", (e) => {
     state.labelsEngine = e.target.value;
+    renderLabelsPaneBody();
+  });
+
+  // Labels tab: non-attributed-labels toggle. Off by default because the
+  // zero-hit groups are mostly noise; turning it on reveals what the model
+  // *didn't* say about each story.
+  document.getElementById("labels-show-unattributed").addEventListener("change", (e) => {
+    state.labelsShowUnattributed = e.target.checked;
+    renderLabelsTree();
     renderLabelsPaneBody();
   });
 
@@ -362,15 +384,24 @@ function filteredLabels() {
     if (state.labelsCategoryFilter && !state.labelsCategoryFilter.has(l.category))
       return false;
     if (state.labelsTopicFilter && !state.labelsTopicFilter.has(l.topic)) return false;
+    // labels.json now includes zero-hit groups; treat anything missing the
+    // attributed field as legacy data that *was* attributed (any signal).
+    const isAttributed = l.attributed !== undefined ? l.attributed : l.hits > 0;
+    if (!state.labelsShowUnattributed && !isAttributed) return false;
     return true;
   });
 }
 
 function renderLabelsTree() {
   const root = document.getElementById("labels-book-list");
-  // The tree shows books that have labels under the *unfiltered* set, so
-  // toggling filters doesn't make books disappear and reorder the tree.
-  const labeledBooks = sortedUnique(state.labels.map((l) => l.book));
+  // The tree shows the attribution-aware universe — when the user toggles on
+  // "show non-attributed", stories that only have negative results appear
+  // here too. Engine/category/topic filters still don't reorder the tree.
+  const treeSource = state.labels.filter((l) => {
+    const isAttributed = l.attributed !== undefined ? l.attributed : l.hits > 0;
+    return state.labelsShowUnattributed || isAttributed;
+  });
+  const labeledBooks = sortedUnique(treeSource.map((l) => l.book));
   const books = labeledBooks.length
     ? labeledBooks
     : Array.from(state.manifest.books || []);
@@ -380,12 +411,14 @@ function renderLabelsTree() {
       const isExpanded = state.labelsBookExpanded.has(book);
       const isActive = state.labelsBookSelected === book;
       const stories = sortedUnique(
-        state.labels.filter((l) => l.book === book).map((l) => l.story),
+        treeSource.filter((l) => l.book === book).map((l) => l.story),
       );
       const storyItems = stories
         .map((s) => {
           const cls = state.labelsStorySelected === s ? "tree-story active" : "tree-story";
-          return `<li class="${cls}" data-book="${escapeHtml(book)}" data-story="${escapeHtml(s)}">${escapeHtml(s)}</li>`;
+          const chips = sourceChips(s).join("");
+          const chipHtml = chips ? ` <span class="source-chip-row">${chips}</span>` : "";
+          return `<li class="${cls}" data-book="${escapeHtml(book)}" data-story="${escapeHtml(s)}">${escapeHtml(s)}${chipHtml}</li>`;
         })
         .join("");
 
@@ -509,16 +542,18 @@ function renderBookGrid(bookLabels, title, body) {
       const labels = byStory.get(story);
       // Most distinctive labels first (highest hit count).
       labels.sort((a, b) => b.hits - a.hits || a.topic.localeCompare(b.topic));
-      const chips = labels
-        .map(
-          (l) =>
-            `<span class="label-chip" data-category="${escapeHtml(l.category)}"
+      const chips = [
+        ...sourceChips(story),
+        ...labels.map((l) => {
+          const isAttributed = l.attributed !== undefined ? l.attributed : l.hits > 0;
+          const cls = isAttributed ? "label-chip" : "label-chip label-chip-unattributed";
+          return `<span class="${cls}" data-category="${escapeHtml(l.category)}"
                    title="${escapeHtml(l.topic)}:${escapeHtml(l.category)} — ${l.hits}/${l.total} (avg ${l.avg_certainty})">
               ${escapeHtml(l.topic)}
               <span class="label-chip-score">${l.hits}/${l.total}</span>
-            </span>`,
-        )
-        .join("");
+            </span>`;
+        }),
+      ].join("");
       const labelCount = labels.length;
       return `
         <div class="story-grid-row" data-story="${escapeHtml(story)}">
@@ -544,50 +579,143 @@ function renderBookGrid(bookLabels, title, body) {
 }
 
 function renderStoryDetail(story, book, storyLabels, title, body) {
-  title.innerHTML = `${escapeHtml(story)} <span class="muted">(${escapeHtml(book)})</span>`;
+  const sources = sourceChips(story).join("");
+  const sourcesHtml = sources ? ` <span class="source-chip-row">${sources}</span>` : "";
+  title.innerHTML =
+    `${escapeHtml(story)} <span class="muted">(${escapeHtml(book)})</span>${sourcesHtml}`;
 
   // Order labels by hit count desc.
   storyLabels.sort((a, b) => b.hits - a.hits || a.topic.localeCompare(b.topic));
 
-  const cards = storyLabels
-    .map((l) => {
-      const pct = l.total ? (l.hits / l.total) * 100 : 0;
-      const promptRows = l.prompts
-        .map((p) => {
-          const ans = p.answer ? "✓" : "✗";
-          const ansCls = p.answer ? "answer-true" : "answer-false";
-          const liCls = p.answer ? "" : "is-false";
-          return `<li class="${liCls}">
-            <span class="answer-mark ${ansCls}">${ans}</span>
-            <span class="prompt-id">#${escapeHtml(p.id)}</span>
-            <span class="prompt-text">${escapeHtml(p.prompt)}</span>
-            <span class="prompt-cert">${p.certainty}</span>
-          </li>`;
-        })
-        .join("");
-      const engineNote =
-        state.labelsEngine || storyLabels.every((x) => x.engine === l.engine)
-          ? ""
-          : `<span class="muted" style="font-size:11px"> · ${escapeHtml(l.engine)}</span>`;
-      return `
-        <article class="label-card" data-category="${escapeHtml(l.category)}">
-          <div class="label-card-head">
-            <h3 class="label-card-title">
-              ${escapeHtml(l.topic)}
-              <span class="label-card-category">:${escapeHtml(l.category)}</span>
-              ${engineNote}
-            </h3>
-            <div class="label-card-score">
-              <div>${l.hits} / ${l.total} · avg cert ${l.avg_certainty}</div>
-              <div class="label-card-bar"><div class="label-card-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>
-            </div>
-          </div>
-          <ul class="label-card-prompts">${promptRows}</ul>
-        </article>`;
-    })
-    .join("");
+  const cards = storyLabels.map((l) => renderLabelCard(l, storyLabels)).join("");
 
-  body.innerHTML = `<div class="label-cards">${cards}</div>`;
+  const meta = state.stories[story] || {};
+  const verseRefs = (meta.verses || []).join(", ");
+  const verseRefsHtml = verseRefs
+    ? `<div class="story-text-verses muted">${escapeHtml(meta.book || book)} ${escapeHtml(verseRefs)}</div>`
+    : "";
+  // The export bundles Hebrew text per story (when the corpus is present).
+  // Collapse to a couple of lines by default — most pericopes are long
+  // enough that showing the full text crowds out the labels. A fade-out
+  // gradient signals there's more below; the toggle expands the box.
+  const textHtml = meta.text
+    ? `<section class="story-text" data-collapsed="true">
+         ${verseRefsHtml}
+         <div class="story-text-clip">
+           <p class="story-text-body" dir="rtl" lang="he">${escapeHtml(meta.text)}</p>
+         </div>
+         <button class="story-text-toggle" type="button" aria-expanded="false">
+           <span class="story-text-toggle-show">Show full text ▾</span>
+           <span class="story-text-toggle-hide">Show less ▴</span>
+         </button>
+       </section>`
+    : `<section class="story-text story-text-missing muted">
+         No biblical text bundled for this story — re-run <code>prophecy export</code> with a Bible corpus available.
+       </section>`;
+
+  body.innerHTML = `${textHtml}<div class="label-cards">${cards}</div>`;
+
+  // Wire up the collapse/expand toggle. If the text fits without overflow,
+  // strip the collapsed state entirely so the gradient + button don't appear
+  // for short passages.
+  const textSection = body.querySelector(".story-text[data-collapsed]");
+  if (textSection) {
+    const clip = textSection.querySelector(".story-text-clip");
+    const toggle = textSection.querySelector(".story-text-toggle");
+    // Read after layout so scrollHeight reflects the constrained height.
+    requestAnimationFrame(() => {
+      if (clip.scrollHeight <= clip.clientHeight + 1) {
+        textSection.removeAttribute("data-collapsed");
+        toggle.remove();
+      }
+    });
+    toggle.addEventListener("click", () => {
+      const collapsed = textSection.getAttribute("data-collapsed") === "true";
+      textSection.setAttribute("data-collapsed", collapsed ? "false" : "true");
+      toggle.setAttribute("aria-expanded", collapsed ? "true" : "false");
+    });
+  }
+}
+
+// Render one label card. True prompts are listed inline; false prompts hide
+// under a native <details> disclosure so the default view only shows positive
+// signal, but the full evidence is one click away.
+function renderLabelCard(l, storyLabels) {
+  const pct = l.total ? (l.hits / l.total) * 100 : 0;
+  const truePrompts = l.prompts.filter((p) => p.answer);
+  const falsePrompts = l.prompts.filter((p) => !p.answer);
+  const trueRows = truePrompts.map(renderPromptRow).join("");
+  const falseRows = falsePrompts.map(renderPromptRow).join("");
+  const falseBlock = falsePrompts.length
+    ? `<details class="label-card-false">
+         <summary>Show ${falsePrompts.length} false answer${falsePrompts.length === 1 ? "" : "s"}</summary>
+         <ul class="label-card-prompts">${falseRows}</ul>
+       </details>`
+    : "";
+  const engineNote =
+    state.labelsEngine || storyLabels.every((x) => x.engine === l.engine)
+      ? ""
+      : `<span class="muted" style="font-size:11px"> · ${escapeHtml(l.engine)}</span>`;
+  const isAttributed = l.attributed !== undefined ? l.attributed : l.hits > 0;
+  const cardClasses = isAttributed
+    ? "label-card"
+    : "label-card label-card-unattributed";
+  // For unattributed groups every prompt is false — there's nothing to show
+  // inline. Open the false-list by default so the rationale is still one
+  // click away to skim.
+  const promptsHtml = isAttributed
+    ? `<ul class="label-card-prompts">${trueRows}</ul>${falseBlock}`
+    : falsePrompts.length
+      ? `<details class="label-card-false" open>
+           <summary>${falsePrompts.length} false answer${falsePrompts.length === 1 ? "" : "s"}</summary>
+           <ul class="label-card-prompts">${falseRows}</ul>
+         </details>`
+      : "";
+  return `
+    <article class="${cardClasses}" data-category="${escapeHtml(l.category)}">
+      <div class="label-card-head">
+        <h3 class="label-card-title">
+          ${escapeHtml(l.topic)}
+          <span class="label-card-category">:${escapeHtml(l.category)}</span>
+          ${engineNote}
+        </h3>
+        <div class="label-card-score">
+          <div>${l.hits} / ${l.total} · avg cert ${l.avg_certainty}</div>
+          <div class="label-card-bar"><div class="label-card-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>
+        </div>
+      </div>
+      ${promptsHtml}
+    </article>`;
+}
+
+function renderPromptRow(p) {
+  const ans = p.answer ? "✓" : "✗";
+  const ansCls = p.answer ? "answer-true" : "answer-false";
+  const liCls = p.answer ? "" : "is-false";
+  // Cache id provenance: show the last 8 chars of the MD5 (full stem stays
+  // in the cache filename) so the user can grep the cache folder back to
+  // the exact result. Fall back gracefully on legacy entries without one.
+  const cacheTag = p.cache_id
+    ? `<span class="prompt-cache" title="cache: ${escapeHtml(p.cache_id)}.json">${escapeHtml(p.cache_id.slice(-8))}</span>`
+    : "";
+  const reason = (p.reason || "").trim();
+  const reasonBlock = reason
+    ? `<div class="prompt-rationale">${escapeHtml(reason)}</div>`
+    : `<div class="prompt-rationale prompt-rationale-empty muted">(no rationale recorded)</div>`;
+  // <details> turns the row itself into the click target. The summary holds
+  // the existing grid layout; the rationale unfolds below it when clicked.
+  return `<li class="${liCls}">
+    <details class="prompt-row">
+      <summary class="prompt-row-summary">
+        <span class="answer-mark ${ansCls}">${ans}</span>
+        <span class="prompt-id">#${escapeHtml(p.id)}</span>
+        ${cacheTag}
+        <span class="prompt-text">${escapeHtml(p.prompt)}</span>
+        <span class="prompt-cert">${p.certainty}</span>
+      </summary>
+      ${reasonBlock}
+    </details>
+  </li>`;
 }
 
 // ---------- Prompts tab ----------

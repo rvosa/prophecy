@@ -323,6 +323,17 @@ def create_argument_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--stories-file",
+        default=None,
+        help=(
+            "Name (or path) of the stories YAML file inside the data folder "
+            "(default: stories.yml). Overrides PROPHECY_STORIES_FILE and the "
+            "stories_file entry in prophecy.toml. Use an absolute path to "
+            "load a file outside the data folder."
+        ),
+    )
+
+    parser.add_argument(
         "--api-key", help="API key for AI services (overrides OPENAI_API_KEY environment variable)"
     )
 
@@ -357,11 +368,13 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--workers",
         type=int,
-        default=1,
+        default=None,
         help=(
-            "Run that many AI-provider requests in parallel (default: 1). "
-            "Cache reads/writes are file-per-call so they don't collide; stdout "
-            "stays line-buffered. Useful with --ai-provider claude/chatgpt."
+            "Run that many AI-provider requests in parallel. Overrides "
+            "PROPHECY_WORKERS and the workers entry in prophecy.toml (default: 3). "
+            "Each worker is an independent provider call so prompts can't "
+            "cross-contaminate; cache reads/writes are file-per-call so they "
+            "don't collide. Dry-run is always serial."
         ),
     )
 
@@ -392,14 +405,18 @@ def setup_logging(verbosity_level: str) -> logging.Logger:
 def initialize_components(settings: Settings, logger: logging.Logger):
     """Initialize Stories, Prompts, and Bible components from a Settings."""
     try:
-        stories = Stories(data_folder=settings.data_folder)
+        stories = Stories(
+            data_folder=settings.data_folder,
+            stories_file=settings.stories_file,
+        )
         prompts = Prompts(data_folder=settings.data_folder)
         bible = Bible(data_folder=settings.data_folder)
         return stories, prompts, bible
     except FileNotFoundError as e:
         logger.error(f"{e}")
         logger.error(
-            "Please ensure the data folder contains stories.yml, prompts.tsv, and bible data"
+            f"Please ensure the data folder contains {settings.stories_folder}/{settings.stories_file}, "
+            f"{settings.prompts_folder}/prompts.tsv, and bible data"
         )
         sys.exit(1)
     except Exception as e:
@@ -673,7 +690,9 @@ def process_all_combinations(
             work_items.append((story, prompt_record, biblical_text))
 
     total = len(work_items)
-    workers = max(1, int(getattr(args, "workers", 1) or 1))
+    # Settings already validated workers >= 1; CLI default of None means
+    # "use whatever Settings resolved (CLI flag → env → toml → 3)".
+    workers = settings.workers
     # Dry-run prints multi-line blocks per item; threading them just interleaves
     # garbage. Force serial for dry-run.
     if args.dry_run:
@@ -748,6 +767,14 @@ def _create_query_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data", help="Path to data folder (overrides PROPHECY_DATA_FOLDER)")
     parser.add_argument("--cache-folder", help="Path to cache folder (defaults to data/results)")
     parser.add_argument(
+        "--stories-file",
+        default=None,
+        help=(
+            "Stories YAML file inside the data folder (default: stories.yml). "
+            "Overrides PROPHECY_STORIES_FILE and prophecy.toml."
+        ),
+    )
+    parser.add_argument(
         "--category",
         action="append",
         default=None,
@@ -792,7 +819,12 @@ def _create_query_parser() -> argparse.ArgumentParser:
 
 
 def _load_cached_results(cache_folder: Path, logger: logging.Logger) -> list[dict[str, Any]]:
-    """Read every *.json file in the cache folder. Skip unreadable/non-result files."""
+    """Read every *.json file in the cache folder. Skip unreadable/non-result files.
+
+    Each loaded record carries an extra ``_cache_id`` field set to the file
+    stem (the MD5 hash used as the cache key). Downstream callers can surface
+    it so users can navigate back to the source file on disk.
+    """
     if not cache_folder.exists():
         logger.warning(f"Cache folder does not exist: {cache_folder}")
         return []
@@ -808,6 +840,7 @@ def _load_cached_results(cache_folder: Path, logger: logging.Logger) -> list[dic
         if not isinstance(data, dict) or "story" not in data or "prompt" not in data:
             logger.debug(f"Skipping non-result file {path}")
             continue
+        data["_cache_id"] = path.stem
         results.append(data)
     return results
 
@@ -865,9 +898,16 @@ def query_command(argv: list[str]) -> int:
     logger = setup_logging(args.verbosity)
 
     try:
-        settings = Settings.load(data_folder=args.data, cache_folder=args.cache_folder)
+        settings = Settings.load(
+            data_folder=args.data,
+            cache_folder=args.cache_folder,
+            stories_file=args.stories_file,
+        )
         prompts = Prompts(data_folder=settings.data_folder)
-        stories = Stories(data_folder=settings.data_folder)
+        stories = Stories(
+            data_folder=settings.data_folder,
+            stories_file=settings.stories_file,
+        )
     except FileNotFoundError as e:
         logger.error(f"{e}")
         return 1
@@ -979,9 +1019,20 @@ def _create_export_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data", help="Path to data folder (overrides PROPHECY_DATA_FOLDER)")
     parser.add_argument("--cache-folder", help="Path to cache folder (defaults to data/results)")
     parser.add_argument(
+        "--stories-file",
+        default=None,
+        help=(
+            "Stories YAML file inside the data folder (default: stories.yml). "
+            "Overrides PROPHECY_STORIES_FILE and prophecy.toml."
+        ),
+    )
+    parser.add_argument(
         "--out",
-        default="dist/data",
-        help="Output folder for the static bundle (default: dist/data)",
+        default=None,
+        help=(
+            "Output folder for the static bundle. Overrides PROPHECY_EXPORT_OUT_FOLDER "
+            "and the export_out_folder entry in prophecy.toml (default: dist/data)."
+        ),
     )
     parser.add_argument(
         "--verbosity",
@@ -1017,14 +1068,29 @@ def export_command(argv: list[str]) -> int:
     logger = setup_logging(args.verbosity)
 
     try:
-        settings = Settings.load(data_folder=args.data, cache_folder=args.cache_folder)
+        settings = Settings.load(
+            data_folder=args.data,
+            cache_folder=args.cache_folder,
+            stories_file=args.stories_file,
+            export_out_folder=args.out,
+        )
         prompts = Prompts(data_folder=settings.data_folder)
-        stories = Stories(data_folder=settings.data_folder)
+        stories = Stories(
+            data_folder=settings.data_folder,
+            stories_file=settings.stories_file,
+        )
+        # Bible is optional for the export — if the corpus isn't available
+        # the bundle still ships, just without resolved story text.
+        try:
+            bible: Bible | None = Bible(data_folder=settings.data_folder)
+        except FileNotFoundError:
+            bible = None
+            logger.info("No Bible corpus found in data folder — stories.json will omit text")
     except FileNotFoundError as e:
         logger.error(f"{e}")
         return 1
 
-    out_root = Path(args.out)
+    out_root = settings.export_out_folder
     out_results = out_root / "results"
     out_root.mkdir(parents=True, exist_ok=True)
     out_results.mkdir(parents=True, exist_ok=True)
@@ -1036,16 +1102,23 @@ def export_command(argv: list[str]) -> int:
     raw_results = _load_cached_results(cache_folder, logger)
     logger.info(f"Loaded {len(raw_results)} cached results from {cache_folder}")
 
-    # Group enriched rows by book.
+    # Group enriched rows by book. Cached results for stories that aren't in
+    # the active stories YAML (e.g. left over from a previous catalog) are
+    # silently dropped so the viewer's universe matches the YAML.
     by_book: dict[str, list[dict[str, Any]]] = {}
     facets_engines: set[str] = set()
     facets_categories: set[str] = set()
     facets_topics: set[str] = set()
     facets_stories: set[str] = set()
     result_count_by_prompt: dict[str, int] = {}
+    known_stories = set(stories.titles)
+    dropped_unknown = 0
 
     for r in raw_results:
         story_title = str(r.get("story", ""))
+        if story_title not in known_stories:
+            dropped_unknown += 1
+            continue
         prompt_id = str(r.get("prompt", ""))
         category, topic = _resolve_prompt_meta(prompt_id, prompt_meta)
         book = story_book.get(story_title, "unknown")
@@ -1070,6 +1143,12 @@ def export_command(argv: list[str]) -> int:
             facets_stories.add(story_title)
         if prompt_id:
             result_count_by_prompt[prompt_id] = result_count_by_prompt.get(prompt_id, 0) + 1
+
+    if dropped_unknown:
+        logger.info(
+            f"Dropped {dropped_unknown} cached results for stories not in "
+            f"{settings.stories_folder}/{settings.stories_file}"
+        )
 
     # Write shards.
     shards = []
@@ -1103,14 +1182,29 @@ def export_command(argv: list[str]) -> int:
     with open(prompts_json_path, "w", encoding="utf-8") as f:
         json.dump(prompts.get_prompts(), f, separators=(",", ":"))
 
-    # Write stories.json (title -> {book, verses}).
+    # Write stories.json (title -> {book, verses, sources?, text?}). ``sources``
+    # is optional in the YAML and is emitted only when present. ``text`` is the
+    # resolved biblical text for the verse ranges, populated when a Bible
+    # corpus is available so the viewer can show the full passage inline.
     stories_json_path = out_root / "stories.json"
-    stories_payload = {
-        title: {"book": stories.get_story(title).book, "verses": stories.get_story(title).verses}
-        for title in stories.titles
-    }
+    stories_payload: dict[str, dict[str, Any]] = {}
+    text_failures = 0
+    for title in stories.titles:
+        story = stories.get_story(title)
+        entry: dict[str, Any] = {"book": story.book, "verses": story.verses}
+        if story.sources:
+            entry["sources"] = story.sources
+        if bible is not None:
+            try:
+                entry["text"] = bible.get_text(story.book, *story.to_bible_parts())
+            except Exception as e:
+                text_failures += 1
+                logger.debug(f"Could not resolve text for {title}: {e}")
+        stories_payload[title] = entry
     with open(stories_json_path, "w", encoding="utf-8") as f:
         json.dump(stories_payload, f, separators=(",", ":"))
+    if bible is not None and text_failures:
+        logger.warning(f"stories.json: {text_failures} stories without resolved text")
 
     # If labels.json exists alongside the data folder, copy it into the bundle
     # so the viewer can read it as a sibling of prompts.json / stories.json.
@@ -1175,6 +1269,14 @@ def _create_label_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data", help="Path to data folder (overrides PROPHECY_DATA_FOLDER)")
     parser.add_argument("--cache-folder", help="Path to cache folder (defaults to data/results)")
     parser.add_argument(
+        "--stories-file",
+        default=None,
+        help=(
+            "Stories YAML file inside the data folder (default: stories.yml). "
+            "Overrides PROPHECY_STORIES_FILE and prophecy.toml."
+        ),
+    )
+    parser.add_argument(
         "--out",
         default=None,
         help="Output JSON path (default: <data>/labels.json)",
@@ -1224,9 +1326,16 @@ def label_command(argv: list[str]) -> int:
     logger = setup_logging(args.verbosity)
 
     try:
-        settings = Settings.load(data_folder=args.data, cache_folder=args.cache_folder)
+        settings = Settings.load(
+            data_folder=args.data,
+            cache_folder=args.cache_folder,
+            stories_file=args.stories_file,
+        )
         prompts = Prompts(data_folder=settings.data_folder)
-        stories = Stories(data_folder=settings.data_folder)
+        stories = Stories(
+            data_folder=settings.data_folder,
+            stories_file=settings.stories_file,
+        )
     except FileNotFoundError as e:
         logger.error(f"{e}")
         return 1
@@ -1259,6 +1368,11 @@ def label_command(argv: list[str]) -> int:
     raw_results = _load_cached_results(cache_folder, logger)
     logger.info(f"Loaded {len(raw_results)} cached results from {cache_folder}")
 
+    # Stories outside the active YAML are dropped — matches the export's
+    # behavior so the bundle and the labels share the same universe.
+    known_stories = set(stories.titles)
+    dropped_unknown = 0
+
     # group key -> aggregated bucket
     groups: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
 
@@ -1279,6 +1393,9 @@ def label_command(argv: list[str]) -> int:
 
         story_title = str(r.get("story", ""))
         if not story_title:
+            continue
+        if story_title not in known_stories:
+            dropped_unknown += 1
             continue
         book = story_book.get(story_title, "unknown")
         engine = str(r.get("engine") or "unknown")
@@ -1309,20 +1426,26 @@ def label_command(argv: list[str]) -> int:
         if answer:
             bucket["hits"] += 1
         bucket["cert_sum"] += certainty
+        # Pull the cache id (last 8 chars are enough to navigate by — the full
+        # stem stays in the cache filename) and the rationale text so the
+        # viewer can show provenance + reasoning without re-reading the cache.
+        cache_id = str(r.get("_cache_id", ""))
         bucket["prompts"].append(
             {
                 "id": prompt_id,
                 "answer": answer,
                 "certainty": certainty,
                 "prompt": meta["prompt"],
+                "cache_id": cache_id,
+                "reason": str(r.get("reason", "")),
             }
         )
 
-    # Emit only groups with at least one hit (user's "any signal" rule).
+    # Emit every group, including those with zero hits. The viewer hides the
+    # zero-hit ("not attributed") ones by default; surfacing them here lets
+    # users opt-in without re-running label.
     label_entries = []
     for bucket in groups.values():
-        if bucket["hits"] == 0:
-            continue
         total = bucket["total"]
         # Sort prompts inside the group: true answers first, then by certainty desc.
         bucket["prompts"].sort(key=lambda p: (not p["answer"], -p["certainty"]))
@@ -1335,6 +1458,7 @@ def label_command(argv: list[str]) -> int:
                 "topic": bucket["topic"],
                 "hits": bucket["hits"],
                 "total": total,
+                "attributed": bucket["hits"] > 0,
                 "avg_certainty": round(bucket["cert_sum"] / total, 1) if total else 0.0,
                 "prompts": bucket["prompts"],
             }
@@ -1359,10 +1483,17 @@ def label_command(argv: list[str]) -> int:
         json.dump(payload, f, separators=(",", ":"))
 
     distinct_stories = len({(e["story"], e["engine"]) for e in label_entries})
+    attributed = sum(1 for e in label_entries if e["attributed"])
     logger.info(
-        f"Wrote {len(label_entries)} label entries across {distinct_stories} "
-        f"(story, engine) pairs to {out_path}"
+        f"Wrote {len(label_entries)} label entries ({attributed} attributed, "
+        f"{len(label_entries) - attributed} non-attributed) across "
+        f"{distinct_stories} (story, engine) pairs to {out_path}"
     )
+    if dropped_unknown:
+        logger.info(
+            f"Dropped {dropped_unknown} cached results for stories not in "
+            f"{settings.stories_folder}/{settings.stories_file}"
+        )
     return 0
 
 
@@ -1481,7 +1612,12 @@ def main():
     try:
         # Build a Settings once from CLI flags + env + ./prophecy.toml,
         # then thread it through the pipeline.
-        settings = Settings.load(data_folder=args.data, cache_folder=args.cache_folder)
+        settings = Settings.load(
+            data_folder=args.data,
+            cache_folder=args.cache_folder,
+            stories_file=args.stories_file,
+            workers=args.workers,
+        )
 
         stories, prompts, bible = initialize_components(settings, logger)
         story_titles, prompt_list = validate_inputs(stories, prompts, args, logger)

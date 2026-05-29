@@ -22,16 +22,18 @@ def data_folder():
     with tempfile.TemporaryDirectory() as tmp:
         data = Path(tmp) / "data"
         data.mkdir()
+        (data / "prompts").mkdir()
+        (data / "stories").mkdir()
 
-        (data / "prompts.tsv").write_text(
+        (data / "prompts" / "prompts.tsv").write_text(
             "id\tcategory\ttopic\tprompt\n"
             "1\tPolitics\tPopulism\tThe people lead\n"
             "2\tPolitics\tElitism\tThe elite rule\n"
             "3\tBabylonian\tGeo\tThere is destruction\n",
             encoding="utf-8",
         )
-        (data / "template.txt").write_text('"$prompt"\n"$text"\n', encoding="utf-8")
-        (data / "stories.yml").write_text(
+        (data / "prompts" / "template.txt").write_text('"$prompt"\n"$text"\n', encoding="utf-8")
+        (data / "stories" / "stories.yml").write_text(
             "The Creation:\n  book: Genesis\n  verses: ['1:1']\n"
             "The Exodus:\n  book: Exodus\n  verses: ['1:1']\n",
             encoding="utf-8",
@@ -219,3 +221,84 @@ def test_export_without_labels_json_omits_from_manifest(data_folder):
         assert not (out_dir / "labels.json").exists()
         manifest = json.loads((out_dir / "index.json").read_text())
         assert "labels" not in manifest["files"]
+
+
+def test_export_stories_json_includes_sources(data_folder):
+    """stories.json emits the ``sources`` array only for stories that declare it."""
+    # Rewrite stories.yml so one story has sources, the other doesn't.
+    (data_folder / "stories" / "stories.yml").write_text(
+        "The Creation:\n  book: Genesis\n  verses: ['1:1']\n"
+        "The Exodus:\n  book: Exodus\n  verses: ['1:1']\n  sources: ['E', 'P']\n",
+        encoding="utf-8",
+    )
+
+    with tempfile.TemporaryDirectory() as out_tmp:
+        out_dir = Path(out_tmp) / "dist"
+        with patch.dict(os.environ, {"PROPHECY_DATA_FOLDER": str(data_folder)}, clear=False):
+            rc = export_command(["--out", str(out_dir), "--verbosity", "WARNING"])
+        assert rc == 0
+
+        stories_payload = json.loads((out_dir / "stories.json").read_text())
+        assert stories_payload["The Exodus"]["sources"] == ["E", "P"]
+        # Stories without sources stay byte-identical to the legacy shape.
+        assert "sources" not in stories_payload["The Creation"]
+
+
+def test_export_drops_results_for_unknown_stories(data_folder):
+    """Cached results whose story isn't in the YAML are dropped from the bundle."""
+    # The fixture's stories.yml knows about "The Creation" and "The Exodus".
+    # Add a cache file for a story that isn't there.
+    orphan = data_folder / "results" / "orphan.json"
+    orphan.write_text(
+        json.dumps(
+            {
+                "answer": True,
+                "certainty": 75,
+                "story": "Ghost Story",
+                "prompt": "1",
+                "engine": "chatgpt:gpt-4",
+            }
+        )
+    )
+
+    with tempfile.TemporaryDirectory() as out_tmp:
+        out_dir = Path(out_tmp) / "dist"
+        with patch.dict(os.environ, {"PROPHECY_DATA_FOLDER": str(data_folder)}, clear=False):
+            rc = export_command(["--out", str(out_dir), "--verbosity", "WARNING"])
+        assert rc == 0
+
+        manifest = json.loads((out_dir / "index.json").read_text())
+        # Manifest only mentions stories that exist in the YAML.
+        assert "Ghost Story" not in manifest["stories"]
+        # Pre-existing fixture has 4 results across the two known stories; the
+        # orphan must not inflate the count.
+        assert manifest["total_results"] == 4
+        # And no shard for an unknown story's book either.
+        assert all(s["book"] != "unknown" for s in manifest["shards"])
+
+
+def test_export_stories_file_flag_picks_alternate_yaml(data_folder):
+    """--stories-file selects an alternate YAML file in the data folder."""
+    (data_folder / "stories" / "stories-alt.yml").write_text(
+        "Only Story:\n  book: Genesis\n  verses: ['1:1']\n  sources: ['Alt']\n",
+        encoding="utf-8",
+    )
+
+    with tempfile.TemporaryDirectory() as out_tmp:
+        out_dir = Path(out_tmp) / "dist"
+        with patch.dict(os.environ, {"PROPHECY_DATA_FOLDER": str(data_folder)}, clear=False):
+            rc = export_command(
+                [
+                    "--out",
+                    str(out_dir),
+                    "--stories-file",
+                    "stories-alt.yml",
+                    "--verbosity",
+                    "WARNING",
+                ]
+            )
+        assert rc == 0
+
+        stories_payload = json.loads((out_dir / "stories.json").read_text())
+        assert set(stories_payload.keys()) == {"Only Story"}
+        assert stories_payload["Only Story"]["sources"] == ["Alt"]

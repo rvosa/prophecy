@@ -19,7 +19,8 @@ from pathlib import Path
 import pytest
 
 DATA_DIR = Path(__file__).parent.parent / "data"
-PROMPT_FILES = sorted(DATA_DIR.glob("prompts*.tsv"))
+PROMPTS_DIR = DATA_DIR / "prompts"
+PROMPT_FILES = sorted(PROMPTS_DIR.glob("prompts*.tsv"))
 PROMPT_FILE_IDS = [p.name for p in PROMPT_FILES]
 
 
@@ -30,9 +31,9 @@ def _read_rows(path: Path) -> list[list[str]]:
 
 @pytest.fixture(scope="module")
 def prompt_files() -> list[Path]:
-    assert PROMPT_FILES, f"No prompts*.tsv files found under {DATA_DIR}"
+    assert PROMPT_FILES, f"No prompts*.tsv files found under {PROMPTS_DIR}"
     # The main file is mandatory; everything else is opt-in.
-    assert (DATA_DIR / "prompts.tsv") in PROMPT_FILES, "prompts.tsv must exist"
+    assert (PROMPTS_DIR / "prompts.tsv") in PROMPT_FILES, "prompts.tsv must exist"
     return PROMPT_FILES
 
 

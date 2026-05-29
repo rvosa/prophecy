@@ -21,41 +21,49 @@ class Prompts:
     for reading prompts and populating templates with prompts and Story objects.
     """
 
-    def __init__(self, data_folder: str | Path | None = None):
+    def __init__(
+        self,
+        data_folder: str | Path | None = None,
+        prompts_folder: str | Path | None = None,
+    ):
         """
         Initialize the Prompts class.
 
         Args:
-            data_folder: Path to the data folder containing ``prompts.tsv``
-                (required), any number of auxiliary ``prompts.<name>.tsv``
-                files, and ``template.txt``. If None, falls back to
-                ``Settings.load()``, which layers prophecy.toml, the
-                PROPHECY_DATA_FOLDER env var, and the dataclass default
-                ('data').
+            data_folder: Path to the data folder. If None, falls back to
+                ``Settings.load()``.
+            prompts_folder: Subfolder under ``data_folder`` containing
+                ``prompts.tsv`` (required), any number of auxiliary
+                ``prompts.<name>.tsv`` files, and ``template.txt``.
+                Default ``prompts``. If None, falls back to
+                ``Settings.load().prompts_folder``.
 
         Auxiliary prompt files let contributors keep topical prompt sets
         (e.g. ``prompts.politics.tsv``) in their own files. All matching
         ``prompts*.tsv`` files are merged on load, with IDs required to be
         globally unique across the set.
         """
-        if data_folder is None:
-            data_folder = Settings.load().data_folder
+        settings = Settings.load(
+            data_folder=data_folder,
+            prompts_folder=prompts_folder,
+        )
+        self.data_folder = settings.data_folder
+        self.prompts_folder = settings.resolve_prompts_folder()
 
-        self.data_folder = Path(data_folder)
-
-        # Validate data folder exists
         if not self.data_folder.exists():
             raise FileNotFoundError(f"Data folder not found: {self.data_folder}")
+        if not self.prompts_folder.exists():
+            raise FileNotFoundError(f"Prompts folder not found: {self.prompts_folder}")
 
         # The main prompts.tsv is required; auxiliary prompts.<name>.tsv
         # files are picked up automatically when present.
-        self.prompts_path = self.data_folder / "prompts.tsv"
+        self.prompts_path = self.prompts_folder / "prompts.tsv"
         if not self.prompts_path.exists():
             raise FileNotFoundError(f"Prompts file not found: {self.prompts_path}")
         self.prompts_paths: list[Path] = self._discover_prompt_files()
 
         # Load the template.txt file
-        self.template_path = self.data_folder / "template.txt"
+        self.template_path = self.prompts_folder / "template.txt"
         if not self.template_path.exists():
             raise FileNotFoundError(f"Template file not found: {self.template_path}")
 
@@ -69,7 +77,7 @@ class Prompts:
 
     def _discover_prompt_files(self) -> list[Path]:
         """Return the main prompts.tsv first, then auxiliary prompts.*.tsv files sorted by name."""
-        aux = sorted(p for p in self.data_folder.glob("prompts.*.tsv") if p != self.prompts_path)
+        aux = sorted(p for p in self.prompts_folder.glob("prompts.*.tsv") if p != self.prompts_path)
         return [self.prompts_path, *aux]
 
     def _load_prompts(self):

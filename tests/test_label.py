@@ -22,8 +22,10 @@ def data_folder():
     with tempfile.TemporaryDirectory() as tmp:
         data = Path(tmp) / "data"
         data.mkdir()
+        (data / "prompts").mkdir()
+        (data / "stories").mkdir()
 
-        (data / "prompts.tsv").write_text(
+        (data / "prompts" / "prompts.tsv").write_text(
             "id\tcategory\ttopic\tprompt\n"
             "1\tPolitics\tPopulism\tThe people lead\n"
             "2\tPolitics\tPopulism\tThe leader is humble\n"
@@ -31,8 +33,8 @@ def data_folder():
             "4\tBabylonian\tGeo\tThere is destruction\n",
             encoding="utf-8",
         )
-        (data / "template.txt").write_text('"$prompt"\n"$text"\n', encoding="utf-8")
-        (data / "stories.yml").write_text(
+        (data / "prompts" / "template.txt").write_text('"$prompt"\n"$text"\n', encoding="utf-8")
+        (data / "stories" / "stories.yml").write_text(
             "Sample Story:\n  book: Genesis\n  verses: ['1:1']\n"
             "Exodus Story:\n  book: Exodus\n  verses: ['1:1']\n",
             encoding="utf-8",
@@ -123,18 +125,23 @@ def _read_labels(out_path: Path) -> list[dict]:
     return json.loads(out_path.read_text())["labels"]
 
 
-def test_label_writes_only_groups_with_hits(data_folder):
-    """The Elitism group has 0 hits → must not appear."""
+def test_label_emits_zero_hit_groups_with_attributed_false(data_folder):
+    """Zero-hit groups are kept so the viewer can offer a non-attributed view,
+    but each entry carries an `attributed` flag so consumers can filter them."""
     out = data_folder / "labels.json"
     with patch.dict(os.environ, {"PROPHECY_DATA_FOLDER": str(data_folder)}, clear=False):
         rc = label_command(["--out", str(out), "--verbosity", "WARNING"])
     assert rc == 0
 
     labels = _read_labels(out)
-    topics = {
-        (entry["story"], entry["engine"], entry["category"], entry["topic"]) for entry in labels
-    }
-    assert ("Sample Story", "chatgpt:gpt-4", "Politics", "Elitism") not in topics
+    by_key = {(e["story"], e["engine"], e["category"], e["topic"]): e for e in labels}
+    elitism = by_key[("Sample Story", "chatgpt:gpt-4", "Politics", "Elitism")]
+    assert elitism["hits"] == 0
+    assert elitism["attributed"] is False
+    # And hit groups remain marked attributed.
+    populism = by_key[("Sample Story", "chatgpt:gpt-4", "Politics", "Populism")]
+    assert populism["hits"] > 0
+    assert populism["attributed"] is True
 
 
 def test_label_groups_by_story_engine_category_topic(data_folder):
@@ -283,6 +290,30 @@ def test_label_engine_filter(data_folder):
     assert labels[0]["story"] == "Sample Story"
 
 
+def test_label_drops_results_for_unknown_stories(data_folder):
+    """Cached results whose story isn't in the YAML never become labels."""
+    orphan = data_folder / "results" / "ghost.json"
+    orphan.write_text(
+        json.dumps(
+            {
+                "answer": True,
+                "certainty": 90,
+                "story": "Ghost Story",
+                "prompt": "1",
+                "engine": "chatgpt:gpt-4",
+            }
+        )
+    )
+
+    out = data_folder / "labels.json"
+    with patch.dict(os.environ, {"PROPHECY_DATA_FOLDER": str(data_folder)}, clear=False):
+        rc = label_command(["--out", str(out), "--verbosity", "WARNING"])
+    assert rc == 0
+
+    labels = _read_labels(out)
+    assert all(entry["story"] != "Ghost Story" for entry in labels)
+
+
 def test_label_default_output_path(data_folder):
     # No --out: should write to <data>/labels.json
     with patch.dict(os.environ, {"PROPHECY_DATA_FOLDER": str(data_folder)}, clear=False):
@@ -336,8 +367,16 @@ def test_label_payload_shape(data_folder):
             "topic",
             "hits",
             "total",
+            "attributed",
             "avg_certainty",
             "prompts",
         } <= set(entry.keys())
+        assert entry["attributed"] == (entry["hits"] > 0)
         for p in entry["prompts"]:
-            assert {"id", "answer", "certainty", "prompt"} <= set(p.keys())
+            # cache_id is the MD5-stem the cache file is keyed by; reason is
+            # the rationale text the LLM returned. Both feed the viewer.
+            assert {"id", "answer", "certainty", "prompt", "cache_id", "reason"} <= set(p.keys())
+            # Cache id should look like a 32-hex MD5 (the fixture's filenames
+            # are non-hex like "r0" etc — exact value depends on fixture, just
+            # confirm it's a string).
+            assert isinstance(p["cache_id"], str)
