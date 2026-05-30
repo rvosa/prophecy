@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import json
 import logging
+import random
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -27,6 +28,38 @@ try:
     AI_PROVIDERS_AVAILABLE = True
 except ImportError:
     AI_PROVIDERS_AVAILABLE = False
+
+
+# NATO phonetic alphabet — short, distinctive codenames for parallel workers
+# so log lines from concurrent threads stay visually distinguishable.
+_WORKER_NAME_POOL = (
+    "alpha",
+    "bravo",
+    "charlie",
+    "delta",
+    "echo",
+    "foxtrot",
+    "golf",
+    "hotel",
+    "india",
+    "juliet",
+    "kilo",
+    "lima",
+    "mike",
+    "november",
+    "oscar",
+    "papa",
+    "quebec",
+    "romeo",
+    "sierra",
+    "tango",
+    "uniform",
+    "victor",
+    "whiskey",
+    "xray",
+    "yankee",
+    "zulu",
+)
 
 
 def validate_story_arg(stories_obj: Stories, stories_arg: str) -> list[str]:
@@ -698,15 +731,49 @@ def process_all_combinations(
     if args.dry_run:
         workers = 1
 
+    # Pre-pick a distinct codename per worker so log lines from concurrent
+    # threads are visually distinguishable. If workers > pool size (26),
+    # suffix duplicates with -2, -3, ... so names stay unique.
     if workers > 1:
-        logger.info(f"Parallel mode: {workers} workers")
+        if workers <= len(_WORKER_NAME_POOL):
+            worker_names = random.sample(_WORKER_NAME_POOL, workers)
+        else:
+            pool_size = len(_WORKER_NAME_POOL)
+            shuffled = random.sample(_WORKER_NAME_POOL, pool_size)
+            worker_names = [
+                shuffled[i % pool_size]
+                if i < pool_size
+                else f"{shuffled[i % pool_size]}-{i // pool_size + 1}"
+                for i in range(workers)
+            ]
+        logger.info(f"Parallel mode: {workers} workers ({', '.join(worker_names)})")
+    else:
+        worker_names = []
 
     completed = 0
     completed_lock = threading.Lock()
 
+    # Each thread claims one name on first use and keeps it for the run.
+    name_iter = iter(worker_names)
+    name_lock = threading.Lock()
+    thread_local = threading.local()
+
+    def _worker_name() -> str:
+        name = getattr(thread_local, "name", None)
+        if name is None:
+            with name_lock:
+                name = next(name_iter, "worker")
+            thread_local.name = name
+        return name
+
     def run_one(idx_item):
         idx, (story, prompt_record, biblical_text) = idx_item
-        return idx, process_combination(
+        name = _worker_name()
+        logger.info(
+            f"[{name}] start [{idx + 1}/{total}]: "
+            f"{story.title} ({story.book}) / #{prompt_record['id']}"
+        )
+        process_combination(
             prompts,
             story,
             prompt_record,
@@ -716,6 +783,7 @@ def process_all_combinations(
             cache_folder,
             logger,
         )
+        return name
 
     if workers == 1:
         for story, prompt_record, biblical_text in work_items:
@@ -743,14 +811,15 @@ def process_all_combinations(
             for fut in as_completed(futures):
                 idx, item = futures[fut]
                 story, prompt_record, _ = item
+                name = "?"
                 try:
-                    fut.result()
+                    name = fut.result()
                 except Exception as e:
                     logger.error(f"Worker error on combination #{idx + 1}: {e}")
                 with completed_lock:
                     completed += 1
                     logger.info(
-                        f"--- Combination {completed}/{total}: "
+                        f"[{name}] done [{completed}/{total}]: "
                         f"{story.title} ({story.book}) / #{prompt_record['id']}"
                     )
 
