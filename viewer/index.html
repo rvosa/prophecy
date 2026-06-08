@@ -11,6 +11,7 @@
     <h1>Prophecy Viewer</h1>
     <nav class="tabs">
       <button class="tab-button active" data-tab="labels">Labels</button>
+      <button class="tab-button" data-tab="ranking">Ranking</button>
       <button class="tab-button" data-tab="prompts">Prompts</button>
       <button class="tab-button" data-tab="responses">Responses</button>
       <button class="tab-button" data-tab="query">Query</button>
@@ -66,6 +67,60 @@
             </div>
           </div>
           <div id="labels-pane-body"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-ranking" class="tab-panel">
+      <div class="ranking-layout">
+        <aside class="ranking-tree" aria-label="Books and stories">
+          <div class="ranking-tree-actions">
+            <button type="button" data-action="all" data-target="ranking-stories">all</button>
+            <button type="button" data-action="none" data-target="ranking-stories">none</button>
+          </div>
+          <ul id="ranking-book-list" class="tree-root"></ul>
+        </aside>
+        <div class="ranking-pane">
+          <div class="ranking-controls">
+            <div class="ranking-controls-row">
+              <label class="ranking-pick">Engine
+                <select id="ranking-engine"><option value="">(all)</option></select>
+              </label>
+              <label class="ranking-pick">Score
+                <select id="ranking-score-mode">
+                  <option value="weighted">Weighted (confidence × hit)</option>
+                  <option value="straight">Straight (hit count)</option>
+                </select>
+              </label>
+              <label class="ranking-pick">Combine
+                <select id="ranking-combine-mode">
+                  <option value="position">Position-weighted</option>
+                  <option value="equal">Equal average</option>
+                </select>
+              </label>
+              <label class="ranking-pick ranking-threshold">Threshold
+                <input type="range" id="ranking-threshold" min="0" max="100" step="1" value="0" />
+                <span id="ranking-threshold-value" class="mono">0%</span>
+              </label>
+            </div>
+            <div class="ranking-labels-row">
+              <div class="ranking-labels-picked">
+                <div class="ranking-labels-head">Picked labels <span class="muted">(order = rank priority when position-weighted)</span></div>
+                <ol id="ranking-labels-list" class="ranking-labels-list"></ol>
+              </div>
+              <div class="ranking-labels-add">
+                <label class="ranking-pick">Add label
+                  <select id="ranking-label-add"><option value="">(choose…)</option></select>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="ranking-results">
+            <div class="ranking-results-head">
+              <h2 id="ranking-summary" class="muted">Pick labels and stories to rank.</h2>
+            </div>
+            <div id="ranking-results-body"></div>
+          </div>
         </div>
       </div>
     </section>

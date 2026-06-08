@@ -826,3 +826,292 @@ footer {
   background: var(--row-hover);
   border-radius: 6px;
 }
+
+/* Ranking tab: same two-pane bones as Labels, plus controls + scored table. */
+.ranking-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 20px;
+  min-height: 600px;
+}
+
+.ranking-tree {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-y: auto;
+  max-height: calc(100vh - 180px);
+  padding: 8px 6px;
+  font-size: 13px;
+}
+
+.ranking-tree-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 4px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+
+.ranking-tree-actions button {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: white;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ranking-tree-actions button:hover {
+  background: var(--row-hover);
+  color: var(--fg);
+}
+
+.ranking-tree .tree-book-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ranking-tree .tree-book-check,
+.ranking-tree .tree-story-check {
+  margin: 0;
+  cursor: pointer;
+}
+
+.ranking-tree .tree-story {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+}
+
+.ranking-tree .tree-story-label {
+  flex: 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ranking-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 14px;
+}
+
+.ranking-controls {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  background: var(--row-hover);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ranking-controls-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.ranking-pick {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  color: var(--muted);
+  gap: 4px;
+}
+
+.ranking-pick select,
+.ranking-pick input[type="range"] {
+  font: inherit;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: white;
+  min-width: 180px;
+}
+
+.ranking-pick input[type="range"] {
+  padding: 0;
+  min-width: 160px;
+}
+
+.ranking-threshold {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.ranking-threshold #ranking-threshold-value {
+  min-width: 40px;
+  text-align: right;
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.ranking-labels-row {
+  display: grid;
+  grid-template-columns: 1fr 240px;
+  gap: 16px;
+  align-items: start;
+}
+
+.ranking-labels-head {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.ranking-labels-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 28px;
+}
+
+.ranking-labels-list:empty::before {
+  content: "(none picked — add labels using the dropdown →)";
+  color: var(--muted);
+  font-style: italic;
+  font-size: 12px;
+  padding: 4px 0;
+}
+
+.ranking-labels-list li {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 8px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.ranking-labels-list .rank-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.ranking-labels-list .rank-label {
+  font-weight: 500;
+}
+
+.ranking-labels-list .rank-buttons {
+  display: flex;
+  gap: 2px;
+}
+
+.ranking-labels-list .rank-buttons button {
+  border: 1px solid var(--border);
+  background: white;
+  border-radius: 3px;
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.ranking-labels-list .rank-buttons button:hover:not(:disabled) {
+  background: var(--row-hover);
+  color: var(--fg);
+}
+
+.ranking-labels-list .rank-buttons button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.ranking-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ranking-results-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+#ranking-summary {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+#ranking-results-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+#ranking-results-body th,
+#ranking-results-body td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+#ranking-results-body th {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--row-hover);
+  position: sticky;
+  top: 0;
+}
+
+#ranking-results-body td.score-cell {
+  font-family: var(--mono);
+  text-align: right;
+  white-space: nowrap;
+}
+
+#ranking-results-body td.score-combined {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+#ranking-results-body td.score-cell-bar {
+  position: relative;
+  padding-right: 8px;
+}
+
+#ranking-results-body .score-bar {
+  display: inline-block;
+  height: 4px;
+  background: var(--accent);
+  border-radius: 2px;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+
+#ranking-results-body tr.story-row:hover {
+  background: var(--row-hover);
+  cursor: pointer;
+}
+
+.ranking-empty {
+  padding: 32px;
+  text-align: center;
+  color: var(--muted);
+  background: var(--row-hover);
+  border-radius: 6px;
+}

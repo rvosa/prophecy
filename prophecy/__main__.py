@@ -1570,10 +1570,13 @@ def _create_prune_parser() -> argparse.ArgumentParser:
     """Argparse parser for the 'prune' subcommand."""
     parser = argparse.ArgumentParser(
         description=(
-            "Delete cached result JSON files that match an engine filter. "
-            "Useful for clearing legacy 'unknown'-engine entries left over "
-            "before engine-namespaced cache keys landed. Requires at least "
-            "one --engine value so 'delete everything' isn't a default."
+            "Delete cached result JSON files. Two orthogonal modes: --engine "
+            "deletes by stored engine field (clears legacy 'unknown'-engine "
+            "entries); --by-hash recomputes each file's expected MD5 from "
+            "current prompts.tsv + stories + Bible and deletes mismatches "
+            "(invalidates stale results after editing prompts). Pass at "
+            "least one of --engine or --by-hash so 'delete everything' "
+            "isn't a default."
         ),
         prog="python -m prophecy prune",
     )
@@ -1583,11 +1586,21 @@ def _create_prune_parser() -> argparse.ArgumentParser:
         "--engine",
         action="append",
         default=None,
-        required=True,
         help=(
             "Delete cache files whose engine field matches one of these "
             "values. Repeatable or comma-separated. Use 'unknown' to catch "
-            "files that have engine='unknown' OR no engine field at all."
+            "files that have engine='unknown' OR no engine field at all. "
+            "With --by-hash, restricts the hash check to these engines."
+        ),
+    )
+    parser.add_argument(
+        "--by-hash",
+        action="store_true",
+        help=(
+            "Delete cache files whose stored (story, prompt id, engine) no "
+            "longer hashes to the cache filename. Catches results left over "
+            "after prompts.tsv or stories.yml changed. Synthetic concat:* "
+            "ids are preserved (can't recompute their bundle)."
         ),
     )
     parser.add_argument(
@@ -1610,6 +1623,9 @@ def prune_command(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     logger = setup_logging(args.verbosity)
 
+    if not args.by_hash and not args.engine:
+        parser.error("Pass --engine or --by-hash (or both).")
+
     settings = Settings.load(data_folder=args.data, cache_folder=args.cache_folder)
     cache_folder = settings.resolve_cache_folder()
     if not cache_folder.exists():
@@ -1619,9 +1635,34 @@ def prune_command(argv: list[str]) -> int:
     engine_filter = set(parse_multi_value(args.engine) or [])
     catch_unknown = "unknown" in engine_filter
 
+    # --by-hash needs the current TSV + stories + bible so it can recompute
+    # what each cache file *should* hash to under today's data. Loaded once,
+    # biblical text memoized per story (cache folders typically have many
+    # entries per story).
+    prompts_obj = None
+    stories_obj = None
+    bible_text_cache: dict[str, str | None] = {}
+    prompts_by_id: dict[str, dict[str, str]] = {}
+    if args.by_hash:
+        stories_obj, prompts_obj, bible_obj = initialize_components(settings, logger)
+        prompts_by_id = {p["id"]: p for p in prompts_obj.get_prompts()}
+
+        def _biblical_text(story_title: str) -> str | None:
+            if story_title in bible_text_cache:
+                return bible_text_cache[story_title]
+            try:
+                story = stories_obj.get_story(story_title)
+            except Exception:
+                bible_text_cache[story_title] = None
+                return None
+            text = get_biblical_text(bible_obj, story, logger)
+            bible_text_cache[story_title] = text
+            return text
+
     deleted = 0
     skipped = 0
     inspected = 0
+    kept_fresh = 0
     for path in sorted(cache_folder.glob("*.json")):
         inspected += 1
         try:
@@ -1639,22 +1680,67 @@ def prune_command(argv: list[str]) -> int:
         engine_str = str(engine) if engine is not None else None
         is_unknown = engine_str is None or engine_str == "unknown"
 
-        matches = (catch_unknown and is_unknown) or (
-            engine_str is not None and engine_str in engine_filter
-        )
-        if not matches:
-            continue
+        # --engine alone gates the deletion; with --by-hash it scopes which
+        # files get hash-checked (non-matching files are left alone).
+        if engine_filter:
+            engine_matches = (catch_unknown and is_unknown) or (
+                engine_str is not None and engine_str in engine_filter
+            )
+            if not engine_matches:
+                continue
+
+        reason: str | None = None
+        if args.by_hash:
+            # prompts_obj/stories_obj are populated whenever args.by_hash is
+            # set (initialized above); the assert tells the type checker.
+            assert prompts_obj is not None and stories_obj is not None
+            prompt_id = str(data.get("prompt", ""))
+            story_title = str(data.get("story", ""))
+            if prompt_id.startswith("concat:"):
+                # Synthetic concat ids can't be recomputed without knowing the
+                # exact prompt bundle that produced them. Preserve.
+                continue
+            if not prompt_id:
+                reason = "missing prompt id"
+            elif prompt_id not in prompts_by_id:
+                reason = f"orphan prompt id {prompt_id!r}"
+            else:
+                text = _biblical_text(story_title)
+                if text is None:
+                    reason = f"orphan story {story_title!r}"
+                else:
+                    try:
+                        populated = prompts_obj.populate_template(
+                            prompts_by_id[prompt_id],
+                            stories_obj.get_story(story_title),
+                            text,
+                        )
+                        expected = calculate_template_checksum(populated, engine_str)
+                    except Exception as e:
+                        reason = f"recompute failed: {e}"
+                    else:
+                        if expected != path.stem:
+                            reason = (
+                                f"hash mismatch (have {path.stem[:8]}…, expected {expected[:8]}…)"
+                            )
+            if reason is None:
+                kept_fresh += 1
+                continue
+        else:
+            reason = f"engine match ({engine_str!r})"
 
         if args.dry_run:
-            logger.info(f"Would delete: {path.name} (engine={engine_str!r})")
+            logger.info(f"Would delete: {path.name} — {reason}")
         else:
             path.unlink()
-            logger.debug(f"Deleted: {path.name}")
+            logger.debug(f"Deleted: {path.name} — {reason}")
         deleted += 1
 
     verb = "Would delete" if args.dry_run else "Deleted"
+    suffix = f", {kept_fresh} fresh" if args.by_hash else ""
     logger.info(
-        f"{verb} {deleted} of {inspected} files in {cache_folder} (skipped {skipped} unreadable)"
+        f"{verb} {deleted} of {inspected} files in {cache_folder} "
+        f"(skipped {skipped} unreadable{suffix})"
     )
     return 0
 
